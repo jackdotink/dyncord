@@ -1,0 +1,20 @@
+[package]
+name = "dyncord"
+version = "0.1.1"
+edition = "2024"
+authors = ["Nyeki <hello@nyeki.dev>"]
+license = "MIT"
+readme = "README.md"
+repository = "https://git.nyeki.dev/nyeki/dyncord"
+description = "A high-level, ergonomic, batteries-included Discord bot library for Rust. WIP."
+
+[dependencies]
+rustls = "0.23.37"
+thiserror = "2.0.18"
+tokio = "1.50.0"
+twilight-gateway = { version = "0.17.1", features = ["rustls-webpki-roots", "simd-json", "zlib"] }
+twilight-http = { version = "0.17.1", features = ["rustls-webpki-roots", "simd-json"] }
+twilight-model = "0.17.1"
+
+[dev-dependencies]
+tokio = { version = "1.50.0", features = ["full"] }
