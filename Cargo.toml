@@ -5,7 +5,7 @@ edition = "2024"
 authors = ["Nyeki <hello@nyeki.dev>"]
 license = "MIT"
 readme = "README.md"
-repository = "https://git.nyeki.dev/nyeki/dyncord"
+repository = "https://github.com/Nekidev/dyncord"
 description = "A high-level, ergonomic, batteries-included Discord bot library for Rust. WIP."
 
 [dependencies]
