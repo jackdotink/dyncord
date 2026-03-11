@@ -3,6 +3,7 @@
 use std::pin::Pin;
 
 mod bot;
+pub mod builtin;
 pub mod commands;
 pub mod events;
 pub mod handle;

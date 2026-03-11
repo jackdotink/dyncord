@@ -1,20 +1,20 @@
 //! A handle to interact with the bot's internal state and the Discord API.
-//! 
+//!
 //! The [`Handle`] struct provides methods to interact with the Discord API and the bot's internal
 //! state (not your custom state type). Currently, it only contains a vector of commands and a
 //! method to send messages. It's usually proxied to by contexts, such as in
 //! [`CommandContext::send()`](crate::commands::context::CommandContext::send) where it is used to
 //! send messages to the channel the command was run in.
-//! 
+//!
 //! To send messages, you can use the [`Handle::send()`] method, which returns a [`SendMessage`]
 //! builder that is awaited to send the message. For example, in a command function:
-//! 
+//!
 //! ```
 //! async fn ping(ctx: CommandContext) {
 //!     ctx.handle.send(ctx.event.channel_id, "Pong!").await.unwrap();
 //! }
 //! ```
-//! 
+//!
 //! This is also useful, for example, to build a help command by listing the bot's commands via
 //! [`Handle::commands`].
 
@@ -27,7 +27,7 @@ use twilight_model::id::Id;
 use twilight_model::id::marker::{ChannelMarker, MessageMarker};
 
 use crate::DynFuture;
-use crate::commands::Command;
+use crate::commands::CommandNode;
 use crate::commands::prefixes::Prefixes;
 use crate::state::StateBound;
 
@@ -44,7 +44,7 @@ pub enum SendingError {
 }
 
 /// A handle to interact with the bot's internal state and the Discord API.
-/// 
+///
 /// Read the [module-level documentation](self) for more details and examples on how to use this.
 #[derive(Clone)]
 pub struct Handle<State>
@@ -55,7 +55,7 @@ where
     pub(crate) client: DiscordClient,
 
     /// The bot's commands.
-    pub commands: Arc<Vec<Command<State>>>,
+    pub commands: Arc<Vec<CommandNode<State>>>,
 
     /// The prefixes getter for the bot, if any.
     pub(crate) prefixes: Option<Arc<dyn Prefixes<State>>>,

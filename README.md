@@ -25,7 +25,7 @@ async fn main() {
     let bot = Bot::new(())
         .intents(Intents::GUILD_MESSAGES | INTENTS::MESSAGE_CONTENT)
         .with_prefix(">")
-        .command(Command::new("hello", hello));
+        .command(Command::build("hello", hello));
 
     bot.run("your-token").await.unwrap();
 }
@@ -98,7 +98,7 @@ To add that command to our bot, we just need to create a
 method:
 
 ```rust
-let bot = Bot::new(()).with_prefix(".").command(Command::new("ping", ping));
+let bot = Bot::new(()).with_prefix(".").command(Command::build("ping", ping));
 ```
 
 `"ping"` is the command's name, used to invoke the command. So in this case, sending `.ping` in
@@ -114,7 +114,7 @@ Let's add those to our bot:
 let bot = Bot::new(())
     .intents(Intents::GUILD_MESSAGES | Intents::MESSAGE_CONTENT)
     .with_prefix(".")
-    .command(Command::new("ping", ping));
+    .command(Command::build("ping", ping));
 ```
 
 Now, when you send `.ping` in a channel the bot has access to, it will reply with `pong`. Good!
@@ -144,6 +144,8 @@ Handling events is just as simple. Just create a function that takes
 async fn on_message(ctx: EventContext<(), MessageCreate>) {
     println!("Received a message: {}", ctx.event.content);
 }
+
+let bot = Bot::new(()).on_event(on_message);
 ```
 
 # WIP

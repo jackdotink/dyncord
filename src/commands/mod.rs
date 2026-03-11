@@ -15,14 +15,14 @@
 //! to your bot with [`Bot::command()`](crate::bot::Bot::command):
 //!
 //! ```
-//! let bot = Bot::new(()).command(Command::new("hello", hello));
+//! let bot = Bot::new(()).command(Command::build("hello", hello));
 //! ```
-//! 
+//!
 //! You can also add aliases to your command, which are secondary names that can also be used to
 //! invoke the command.
-//! 
+//!
 //! ```
-//! let bot = Bot::new(()).command(Command::new("hello", hello).aliases(["hi", "hey"]));
+//! let bot = Bot::new(()).command(Command::build("hello", hello).aliases(["hi", "hey"]));
 //! ```
 //!
 //! # Intents
@@ -145,32 +145,62 @@
 //!     }
 //! }
 //! ```
-//! 
+//!
 //! # Command Context
-//! 
+//!
 //! The command context is a struct that contains information about the context in which the
 //! command is being executed. This includes things like the event that triggered the command, the
 //! prefix used, the author, channel, guild, your bot's state, and more. It also provides some
 //! utility functions to interact with the Discord API, such as sending messages.
-//! 
+//!
 //! The [`CommandContext<State>`] is the required first argument of all command handlers. It takes
 //! a generic `State` type which is the same as the one used in your bot, or `()` by default when
 //! you don't need any state.
-//! 
+//!
 //! To send a message in the same channel the command was executed, use [`CommandContext::send()`]:
-//! 
+//!
 //! ```
 //! async fn hello(ctx: CommandContext) {
 //!     ctx.send("Hello, world!").await.unwrap();
 //! }
 //! ```
+//!
+//! # Command Groups
+//!
+//! When your bot starts to grow and you have many commands, it can be useful to group them
+//! together by utility. For example, you may want to group admin commands together and
+//! entertainment commands together. Dyncord supports this with command groups, which are just a
+//! collection of commands, and optionally more subgroups.
+//!
+//! You can create a [`CommandGroup`] with similar fields to [`Command`], and add commands to it
+//! like you do to your [`Bot`](crate::Bot).
+//!
+//! ```
+//! let bot = Bot::new(())
+//!     .command(Command::build("help", help_command))
+//!     .nest(
+//!         CommandGroup::build("admin")
+//!             .command(Command::build("ban", ban_command))
+//!             .command(Command::build("kick", kick_command))
+//!             .command(Command::build("mute", mute_command))
+//!     )
+//!     .nest(
+//!         CommandGroup::build("fun")
+//!             .command(Command::build("joke", joke_command))
+//!             .command(Command::build("meme", meme_command))
+//!     );
+//! ```
+//!
+//! Command groups don't change the functionality nor execution of such commands. They're only
+//! grouped internally, and you can use such grouping to display them more organizedly in a help
+//! command.
 
 pub mod arguments;
 pub mod context;
 pub mod errors;
+pub(crate) mod event;
 pub mod parsing;
 pub mod prefixes;
-pub(crate) mod event;
 
 use std::future::Future;
 use std::marker::PhantomData;
@@ -235,6 +265,13 @@ where
     /// Secondary names that can also be used to invoke the command.
     pub aliases: Vec<String>,
 
+    /// The command's summary. Ideally a short one-line description of the command.
+    pub summary: Option<String>,
+
+    /// The command's description. Ideally a more detailed description of the command, its
+    /// arguments, and how to use it.
+    pub description: Option<String>,
+
     /// The command's handler, the function that executes when the command is run.
     pub(crate) handler: Arc<dyn CommandHandlerWithoutArgs<State>>,
 }
@@ -243,7 +280,7 @@ impl<State> Command<State>
 where
     State: StateBound,
 {
-    /// Creates a new command to route to.
+    /// Creates a new command's builder.
     ///
     /// For example:
     /// ```rust
@@ -253,7 +290,7 @@ where
     ///     Ok(())
     /// }
     ///
-    /// let bot = Bot::new().command(Command::new("hello", hello));
+    /// let bot = Bot::new().command(Command::build("hello", hello));
     /// bot.run("token").await.unwrap();
     /// ```
     ///
@@ -263,39 +300,19 @@ where
     ///
     /// Returns:
     /// [`Command`] - A new command to route to.
-    pub fn new<F, Args>(name: impl Into<String>, handler: F) -> Self
+    pub fn build<F, Args>(name: impl Into<String>, handler: F) -> CommandBuilder<State>
     where
         F: CommandHandler<State, Args> + 'static,
         Args: Send + Sync + 'static,
     {
-        let wrapper = CommandHandlerHolder::new(handler);
-
-        Command {
-            name: name.into(),
-            aliases: Vec::new(),
-            handler: Arc::new(wrapper),
-        }
-    }
-
-    /// Adds aliases to the command.
-    /// 
-    /// Arguments:
-    /// * `aliases` - The command's aliases, which are secondary names that can also be used to
-    ///   invoke the command. It can be one or multiple aliases in various formats, such as a
-    ///   single string, a vector of strings, an array of string slices, etc.
-    /// 
-    /// Returns:
-    /// [`Command`] - The command with the added aliases.
-    pub fn aliases(mut self, aliases: impl IntoAliases) -> Self {
-        self.aliases.append(&mut aliases.into_aliases());
-        self
+        CommandBuilder::new(name, handler)
     }
 
     /// Gets a list of all the command's identifiers, which are the command's name and its aliases.
-    /// 
+    ///
     /// Returns:
     /// `Vec<String>` - A list of all the command's identifiers.
-    pub(crate) fn identifiers(&self) -> Vec<String> {
+    pub fn identifiers(&self) -> Vec<String> {
         let mut identifiers = vec![self.name.clone()];
         identifiers.extend(self.aliases.clone());
         identifiers
@@ -310,6 +327,99 @@ where
     ///   arguments.
     pub(crate) async fn run(&self, ctx: CommandContext<State>, args: &str) {
         let _ = self.handler.run(ctx, args).await;
+    }
+}
+
+/// A builder for [`Command`] that allows setting optional fields like aliases, summary, and description.
+pub struct CommandBuilder<State>
+where
+    State: StateBound,
+{
+    name: String,
+    aliases: Vec<String>,
+    summary: Option<String>,
+    description: Option<String>,
+    handler: Arc<dyn CommandHandlerWithoutArgs<State>>,
+}
+
+impl<State> CommandBuilder<State>
+where
+    State: StateBound,
+{
+    /// Creates a new command builder with the given name and handler.
+    ///
+    /// Arguments:
+    /// * `name` - The command's name, used to invoke the command.
+    /// * `handler` - The command's handler, the function that executes when the command is run.
+    ///
+    /// Returns:
+    /// [`CommandBuilder`] - A new command builder with the given name and handler.    
+    fn new<F, Args>(name: impl Into<String>, handler: F) -> Self
+    where
+        F: CommandHandler<State, Args> + 'static,
+        Args: Send + Sync + 'static,
+    {
+        let wrapper = CommandHandlerHolder::new(handler);
+
+        CommandBuilder {
+            name: name.into(),
+            aliases: Vec::new(),
+            summary: None,
+            description: None,
+            handler: Arc::new(wrapper),
+        }
+    }
+
+    /// Adds one or more aliases to the command.
+    ///
+    /// Arguments:
+    /// * `aliases` - One or more aliases to add to the command. Can be a single string, a vector
+    ///   of strings, or an array of string slices.
+    ///
+    /// Returns:
+    /// [`CommandBuilder`] - The command builder with the added aliases.
+    pub fn aliases(mut self, aliases: impl IntoAliases) -> Self {
+        self.aliases = aliases.into_aliases();
+        self
+    }
+
+    /// Sets the command's summary, which is ideally a short one-line description of the command.
+    ///
+    /// Arguments:
+    /// * `summary` - The command's summary.
+    ///
+    /// Returns:
+    /// [`CommandBuilder`] - The command builder with the set summary.
+    pub fn summary(mut self, summary: impl Into<String>) -> Self {
+        self.summary = Some(summary.into());
+        self
+    }
+
+    /// Sets the command's description, which is ideally a more detailed description of the
+    /// command.
+    ///
+    /// Arguments:
+    /// * `description` - The command's description.
+    ///
+    /// Returns:
+    /// [`CommandBuilder`] - The command builder with the set description.
+    pub fn description(mut self, description: impl Into<String>) -> Self {
+        self.description = Some(description.into());
+        self
+    }
+
+    /// Builds the command, consuming the builder and returning a [`Command`] with the set fields.
+    ///
+    /// Returns:
+    /// [`Command`] - A command with the set fields from the builder.
+    pub(crate) fn build(self) -> Command<State> {
+        Command {
+            name: self.name,
+            aliases: self.aliases,
+            summary: self.summary,
+            description: self.description,
+            handler: self.handler,
+        }
     }
 }
 
@@ -469,6 +579,36 @@ where
     }
 }
 
+impl<State, Func, Fut, A, B, C, D, E, F, Res> CommandHandler<State, (A, B, C, D, E, F)> for Func
+where
+    Func: Fn(CommandContext<State>, A, B, C, D, E, F) -> Fut + Send + Sync + 'static,
+    Fut: Future<Output = Res> + Send,
+    State: StateBound,
+    A: IntoArgument<State>,
+    B: IntoArgument<State>,
+    C: IntoArgument<State>,
+    D: IntoArgument<State>,
+    E: IntoArgument<State>,
+    F: IntoArgument<State>,
+{
+    fn run(&self, ctx: CommandContext<State>, args: &str) -> DynFuture<'_, CommandResult> {
+        let args = args.to_string();
+
+        Box::pin(async move {
+            let (a, remaining) = A::into_argument(ctx.clone(), args).await?;
+            let (b, remaining) = B::into_argument(ctx.clone(), remaining).await?;
+            let (c, remaining) = C::into_argument(ctx.clone(), remaining).await?;
+            let (d, remaining) = D::into_argument(ctx.clone(), remaining).await?;
+            let (e, remaining) = E::into_argument(ctx.clone(), remaining).await?;
+            let (f, _remaining) = F::into_argument(ctx.clone(), remaining).await?;
+
+            (self)(ctx, a, b, c, d, e, f).await;
+
+            Ok(())
+        })
+    }
+}
+
 /// A wrapper for command handler functions to be able to implement [`CommandHandlerWithoutArgs`]
 /// for all command handlers independetnly of their `Args` type.
 struct CommandHandlerHolder<F, Args> {
@@ -506,4 +646,217 @@ where
     fn run(&self, ctx: CommandContext<State>, args: &str) -> DynFuture<'_, CommandResult> {
         self.handler.run(ctx, args)
     }
+}
+
+/// A group of commands, which can be used to organize commands into categories.
+#[derive(Clone)]
+pub struct CommandGroup<State>
+where
+    State: StateBound,
+{
+    /// The name of the group.
+    pub name: String,
+
+    /// The group's summary.
+    pub summary: Option<String>,
+
+    /// The group's description.
+    pub description: Option<String>,
+
+    /// Sub-commands and sub-groups of this group.
+    pub children: Vec<CommandNode<State>>,
+}
+
+impl<State> CommandGroup<State>
+where
+    State: StateBound,
+{
+    /// Creates a new command group builder with the given group name.
+    ///
+    /// Arguments:
+    /// * `name` - The name of the group.
+    ///
+    /// Returns:
+    /// [`CommandGroupBuilder`] - A new command group builder with the given name.
+    pub fn build(name: impl Into<String>) -> CommandGroupBuilder<State> {
+        CommandGroupBuilder::new(name)
+    }
+}
+
+/// A command group builder that allows setting optional fields.
+pub struct CommandGroupBuilder<State>
+where
+    State: StateBound,
+{
+    name: String,
+    summary: Option<String>,
+    description: Option<String>,
+    children: Vec<CommandNode<State>>,
+}
+
+impl<State> CommandGroupBuilder<State>
+where
+    State: StateBound,
+{
+    /// Creates a new command group builder with the given name.
+    ///
+    /// Arguments:
+    /// * `name` - The name of the group.
+    ///
+    /// Returns:
+    /// [`CommandGroupBuilder`] - A new command group builder with the given name.
+    fn new(name: impl Into<String>) -> Self {
+        CommandGroupBuilder {
+            name: name.into(),
+            summary: None,
+            description: None,
+            children: Vec::new(),
+        }
+    }
+
+    /// Sets the group's summary, which is ideally a short one-line description of the group.
+    ///
+    /// Arguments:
+    /// * `summary` - The group's summary.
+    ///
+    /// Returns:
+    /// [`CommandGroupBuilder`] - The command group builder with the set summary.
+    pub fn summary(mut self, summary: impl Into<String>) -> Self {
+        self.summary = Some(summary.into());
+        self
+    }
+
+    /// Sets the group's description, which is ideally a more detailed description of the group.
+    ///
+    /// Arguments:
+    /// * `description` - The group's description.
+    ///
+    /// Returns:
+    /// [`CommandGroupBuilder`] - The command group builder with the set description.
+    pub fn description(mut self, description: impl Into<String>) -> Self {
+        self.description = Some(description.into());
+        self
+    }
+
+    /// Adds a command as a child of this group.
+    ///
+    /// Arguments:
+    /// * `command` - The command to add as a child of this group.
+    ///
+    /// Returns:
+    /// [`CommandGroupBuilder`] - The command group builder with the added command.
+    pub fn command(mut self, command: CommandBuilder<State>) -> Self {
+        self.children.push(CommandNode::Command(command.build()));
+        self
+    }
+
+    /// Adds a subgroup as a child of this group.
+    ///
+    /// Arguments:
+    /// * `group` - The subgroup to add as a child of this group.
+    ///
+    /// Returns:
+    /// [`CommandGroupBuilder`] - The command group builder with the added subgroup.
+    pub fn nest(mut self, group: CommandGroupBuilder<State>) -> Self {
+        self.children.push(CommandNode::Group(group.build()));
+        self
+    }
+
+    /// Builds the command group, consuming the builder and returning a [`CommandGroup`] with the
+    /// set fields.
+    ///
+    /// Returns:
+    /// [`CommandGroup`] - A command group with the set fields from the builder.
+    pub(crate) fn build(self) -> CommandGroup<State> {
+        CommandGroup {
+            name: self.name,
+            summary: self.summary,
+            description: self.description,
+            children: self.children,
+        }
+    }
+}
+
+/// Either a command or a command group.
+#[derive(Clone)]
+pub enum CommandNode<State>
+where
+    State: StateBound,
+{
+    Command(Command<State>),
+    Group(CommandGroup<State>),
+}
+
+/// Flattens a [`CommandNode`] tree into a list of [`Command`]s.
+///
+/// Arguments:
+/// * `nodes` - The nodes to flatten, which is a list of commands and command groups.
+///
+/// Returns:
+/// [`Vec<Command>`] - A list of all the commands in the tree.
+pub fn flatten<State>(nodes: &[CommandNode<State>]) -> Vec<&Command<State>>
+where
+    State: StateBound,
+{
+    let mut commands = Vec::new();
+
+    for node in nodes {
+        match node {
+            CommandNode::Command(command) => commands.push(command),
+            CommandNode::Group(group) => commands.extend(flatten(&group.children)),
+        }
+    }
+
+    commands
+}
+
+/// Returns all the commands in a list of [`CommandNode`]s.
+///
+/// Sub-commands inside command groups are not returned.
+///
+/// Arguments:
+/// * `nodes` - The nodes to get the commands from, which is a list of commands and command groups.
+///
+/// Returns:
+/// [`Vec<Command>`] - A list of all the commands in the list of nodes, excluding sub-commands in
+/// command groups.
+pub fn get_commands<State>(nodes: &[CommandNode<State>]) -> Vec<&Command<State>>
+where
+    State: StateBound,
+{
+    let mut commands = Vec::new();
+
+    for node in nodes {
+        if let CommandNode::Command(command) = node {
+            commands.push(command);
+        }
+    }
+
+    commands
+}
+
+/// Returns all the command groups in a list of [`CommandNode`]s.
+///
+/// Sub-groups inside command groups are not returned.
+///
+/// Arguments:
+/// * `nodes` - The nodes to get the command groups from, which is a list of commands and command
+///   groups.
+///
+/// Returns:
+/// [`Vec<CommandGroup>`] - A list of all the command groups in the list of nodes, excluding
+/// sub-groups in command groups.
+pub fn get_groups<State>(nodes: &[CommandNode<State>]) -> Vec<&CommandGroup<State>>
+where
+    State: StateBound,
+{
+    let mut groups = Vec::new();
+
+    for node in nodes {
+        if let CommandNode::Group(group) = node {
+            groups.push(group);
+        }
+    }
+
+    groups
 }

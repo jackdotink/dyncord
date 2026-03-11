@@ -6,7 +6,7 @@ use twilight_http::Client;
 use twilight_model::gateway::payload::outgoing::identify::IdentifyProperties;
 
 use crate::commands::prefixes::Prefixes;
-use crate::commands::{self, Command};
+use crate::commands::{self, CommandBuilder, CommandGroupBuilder, CommandNode};
 use crate::events::{EventHandler, EventHandlerWithoutEvent, EventHandlerWrapper};
 use crate::handle::Handle;
 use crate::state::StateBound;
@@ -17,7 +17,7 @@ where
     State: StateBound,
 {
     /// The list of commands the bot will route to when a message is received.
-    commands: Vec<Command<State>>,
+    commands: Vec<CommandNode<State>>,
 
     /// The list of event handlers the bot will execute when an event is received.
     events: Vec<Arc<dyn EventHandlerWithoutEvent<State>>>,
@@ -67,8 +67,31 @@ where
     ///
     /// Returns:
     /// [`Bot`] - The bot instance with the added command.
-    pub fn command(mut self, command: Command<State>) -> Self {
-        self.commands.push(command);
+    pub fn command(mut self, command: CommandBuilder<State>) -> Self {
+        self.commands.push(CommandNode::Command(command.build()));
+        self
+    }
+
+    /// Adds a command group to the bot's command list.
+    ///
+    /// For example:
+    /// ```rust
+    /// let bot = Bot::new(())
+    ///     .nest(
+    ///         CommandGroup::new("admin")
+    ///             .command(Command::build("kick", kick_command))
+    ///             .command(Command::build("ban", ban_command))
+    ///     );
+    /// ```
+    ///         
+    ///
+    /// Arguments:
+    /// * `group` - The command group to add to the bot's command list.
+    ///
+    /// Returns:
+    /// [`Bot`] - The bot instance with the added command group.
+    pub fn nest(mut self, group: CommandGroupBuilder<State>) -> Self {
+        self.commands.push(CommandNode::Group(group.build()));
         self
     }
 

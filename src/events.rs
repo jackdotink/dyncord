@@ -11,7 +11,7 @@
 //!         return;
 //!     }
 //! 
-//!     ctx.handle.send(ctx.event.channel_id.get(), ctx.event.content.clone()).await.unwrap();
+//!     ctx.handle.send(ctx.event.channel_id, &ctx.event.content).await.unwrap();
 //! }
 //! ```
 //! 

@@ -1,7 +1,7 @@
 use twilight_model::gateway::payload::incoming::MessageCreate;
 
 use crate::commands::context::CommandContext;
-use crate::commands::parsing;
+use crate::commands::{self, parsing};
 use crate::commands::prefixes::PrefixesContext;
 use crate::events::EventContext;
 use crate::state::StateBound;
@@ -26,7 +26,7 @@ where
                     let command_identifier = parts.command_name.to_string();
                     let command_args = parts.command_args.to_string();
 
-                    for command in &*ctx.handle.commands {
+                    for command in commands::flatten(&ctx.handle.commands) {
                         if command.identifiers().contains(&command_identifier) {
                             let ctx = CommandContext {
                                 event: ctx.event.clone(),

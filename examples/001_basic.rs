@@ -11,7 +11,7 @@ async fn main() {
         .with_prefix(".")
         .intents(Intents::GUILD_MESSAGES)
         .intents(Intents::MESSAGE_CONTENT)
-        .command(Command::new("hello", hello));
+        .command(Command::build("hello", hello));
 
     bot.run(env::var("TOKEN").unwrap()).await;
 }
