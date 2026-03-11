@@ -1,3 +1,163 @@
+//! Message-based (prefixed) commands for [`Bot`](crate::Bot).
+//!
+//! Message commands in Dyncord are simple to create. They're in great part just a function that
+//! takes [`CommandContext`] as its first argument and any* amount of arguments implementing
+//! [`IntoArgument`] as the rest of the arguments. The return type can be anything convenient for
+//! you as long as the function is asynchronous.
+//!
+//! A basic command looks like this:
+//!
+//! ```
+//! async fn hello(ctx: CommandContext) {}
+//! ```
+//!
+//! To add such command handler to your bot, just create a [`Command`] with the handler and add it
+//! to your bot with [`Bot::command()`](crate::bot::Bot::command):
+//!
+//! ```
+//! let bot = Bot::new(()).command(Command::new("hello", hello));
+//! ```
+//!
+//! # Intents
+//!
+//! To receive and respond to message comnands, bots need at least 2 intents: `MESSAGE_CONTENT` and
+//! `GUILD_MESSAGES` or `DIRECT_MESSAGES` (or both) depending on where you want to receive
+//! commands. You can add them to your bot with [`Bot::intents()`](crate::bot::Bot::intents):
+//!
+//! ```
+//! Bot::new(()).intents(Intents::GUILD_MESSAGES | Intents::MESSAGE_CONTENT);
+//! ```
+//!
+//! # Prefixes
+//!
+//! By default, Dyncord doesn't use any prefix for message commands, so you need to set at least
+//! one for it to start routing message commands. You can set a multiple prefixes and even compute
+//! them dynamically based on the message and the bot's state. To set one prefix, just call
+//! [`Bot::with_prefix()`](crate::bot::Bot::with_prefix) with the prefix you want to use:
+//!
+//! ```
+//! Bot::new(()).with_prefix(".");
+//! ```
+//!
+//! To set multiple prefixes, just call [`Bot::with_prefix()`](crate::bot::Bot::with_prefix) with a
+//! more prefixes:
+//!
+//! ```
+//! Bot::new(()).with_prefix([".", "!"]);
+//! ```
+//!
+//! That'll make the bot listen for both `.` and `!` as prefixes. So, for example, if you have a
+//! command named "hello", you can invoke it with either `.hello` or `!hello`.
+//!
+//! To compute prefixes dynamically, you can pass a function as an argument to
+//! [`Bot::with_prefix()`](crate::bot::Bot::with_prefix). The function takes a
+//! [`PrefixesContext`](prefixes::PrefixesContext) as an argument and returns a `Vec<String>` with
+//! the prefixes to use for the message. For example:
+//!
+//! ```
+//! async fn get_prefixes(ctx: PrefixesContext) -> Vec<String> {
+//!     // Dummy code to get the prefixes from a hypothetical database.
+//!     ctx.state.db.get_prefixes(ctx.event.guild_id.get()).await
+//! }
+//!
+//! let bot = Bot::new(()).with_prefix(get_prefixes);
+//! ```
+//!
+//! For more complex implementations of dynamic prefixes, you can also implement
+//! [`Prefixes`](prefixes::Prefixes) for a type and pass an instance of it to
+//! [`Bot::with_prefix()`](crate::bot::Bot::with_prefix) instead.
+//!
+//! # Arguments
+//!
+//! Parsing command arguments is easy with Dyncord. You just need to add them as arguments to your
+//! command handler function and make sure their types implement [`IntoArgument`]. Dyncord will
+//! take care of parsing the arguments from the raw string and passing them to your handler
+//! properly.
+//!
+//! Arguments are usually delimited by a whitespace. For example, a command called "add" could take
+//! 3 arguments like `!add 1 2 3`, and the handler would look like this:
+//!
+//! ```
+//! async fn add(ctx: CommandContext, a: i32, b: i32, c: i32) {
+//!     let sum = a + b + c;
+//!
+//!     ctx.send(format!("The answer is {sum}")).await.unwrap();
+//! }
+//! ```
+//!
+//! Currently, only a few types are supported as arguments natively:
+//!
+//! - `String` - A single word argument.
+//! - [`GreedyString`](arguments::GreedyString) - A string that consumes all remaining raw
+//!   arguments.
+//! - `char` - A single character argument. The argument must be a single character long, otherwise
+//!   it'll fail to parse.
+//! - `i8`, `i16`, `i32`, `i64`, `i128`, `isize` - Signed integer arguments.
+//! - `u8`, `u16`, `u32`, `u64`, `u128`, `usize` - Unsigned integer arguments.
+//! - `f32`, `f64` - Floating point arguments.
+//! - `bool` - A boolean argument. "true" | "y" | "yes" | "1" | "on" are considered `true`, while
+//!   "false" | "n" | "no" | "0" | "off" are considered `false`.
+//! - `Option<T>` - An optional argument. If the argument fails to parse, it'll be considered
+//!   `None` instead of stopping the command's execution.
+//!
+//! Writing a custom argument type is also easy. You just need to implement [`IntoArgument`] for
+//! your type and add the parsing logic in the `into_argument` function.
+//!
+//! For example, let's create a custom `Name` argument type that takes two words as the first and
+//! last name of a person:
+//!
+//! ```
+//! struct Name(String, String);
+//!
+//! impl IntoArgument<()> for Name {
+//!     fn into_argument(
+//!         _ctx: CommandContext,
+//!         args: String,
+//!     ) -> dyncord::DynFuture<'static, Result<(Self, String), ParsingError>> {
+//!         Box::pin(async move {
+//!             // Collect into a vector of the first up to 3 parts of the arguments, since we need
+//!             // 2 words for the name and the rest of the raw arguments.
+//!             let mut parts = args.splitn(3, ' ').collect::<Vec<&str>>();
+//!
+//!             // It must have a first and last name, otherwise it's invalid.
+//!             if parts.len() < 2 {
+//!                 return Err(ParsingError::InvalidArgument);
+//!             }
+//!
+//!             // Only 2 words, meaning nothing remains. We add an empty string as the remaining
+//!             // raw arguments.
+//!             if parts.len() == 2 {
+//!                 parts.push("");
+//!             }
+//!
+//!             Ok((
+//!                 Name(parts[0].trim().to_string(), parts[1].trim().to_string()),
+//!                 parts[2].to_string(),
+//!             ))
+//!         })
+//!     }
+//! }
+//! ```
+//! 
+//! # Command Context
+//! 
+//! The command context is a struct that contains information about the context in which the
+//! command is being executed. This includes things like the event that triggered the command, the
+//! prefix used, the author, channel, guild, your bot's state, and more. It also provides some
+//! utility functions to interact with the Discord API, such as sending messages.
+//! 
+//! The [`CommandContext<State>`] is the required first argument of all command handlers. It takes
+//! a generic `State` type which is the same as the one used in your bot, or `()` by default when
+//! you don't need any state.
+//! 
+//! To send a message in the same channel the command was executed, use [`CommandContext::send()`]:
+//! 
+//! ```
+//! async fn hello(ctx: CommandContext) {
+//!     ctx.send("Hello, world!").await.unwrap();
+//! }
+//! ```
+
 pub mod arguments;
 pub mod context;
 pub mod errors;
@@ -77,7 +237,7 @@ where
     }
 }
 
-type CommandResult = Result<(), CommandError>;
+pub type CommandResult = Result<(), CommandError>;
 
 /// Trait for command handlers, the functions that execute when a command is run.
 pub trait CommandHandler<State, Args>: Send + Sync
@@ -124,7 +284,7 @@ where
         let args = args.to_string();
 
         Box::pin(async move {
-            let (a, _remaining) = A::into_argument(ctx.clone(), &args).await?;
+            let (a, _remaining) = A::into_argument(ctx.clone(), args).await?;
 
             (self)(ctx, a).await;
 
@@ -145,7 +305,7 @@ where
         let args = args.to_string();
 
         Box::pin(async move {
-            let (a, remaining) = A::into_argument(ctx.clone(), &args).await?;
+            let (a, remaining) = A::into_argument(ctx.clone(), args).await?;
             let (b, _remaining) = B::into_argument(ctx.clone(), remaining).await?;
 
             (self)(ctx, a, b).await;
@@ -168,7 +328,7 @@ where
         let args = args.to_string();
 
         Box::pin(async move {
-            let (a, remaining) = A::into_argument(ctx.clone(), &args).await?;
+            let (a, remaining) = A::into_argument(ctx.clone(), args).await?;
             let (b, remaining) = B::into_argument(ctx.clone(), remaining).await?;
             let (c, _remaining) = C::into_argument(ctx.clone(), remaining).await?;
 
@@ -193,7 +353,7 @@ where
         let args = args.to_string();
 
         Box::pin(async move {
-            let (a, remaining) = A::into_argument(ctx.clone(), &args).await?;
+            let (a, remaining) = A::into_argument(ctx.clone(), args).await?;
             let (b, remaining) = B::into_argument(ctx.clone(), remaining).await?;
             let (c, remaining) = C::into_argument(ctx.clone(), remaining).await?;
             let (d, _remaining) = D::into_argument(ctx.clone(), remaining).await?;
@@ -220,7 +380,7 @@ where
         let args = args.to_string();
 
         Box::pin(async move {
-            let (a, remaining) = A::into_argument(ctx.clone(), &args).await?;
+            let (a, remaining) = A::into_argument(ctx.clone(), args).await?;
             let (b, remaining) = B::into_argument(ctx.clone(), remaining).await?;
             let (c, remaining) = C::into_argument(ctx.clone(), remaining).await?;
             let (d, remaining) = D::into_argument(ctx.clone(), remaining).await?;
@@ -249,6 +409,11 @@ impl<F, Args> CommandHandlerHolder<F, Args> {
     }
 }
 
+/// A trait for command handlers that can be run without a generic `Args` type.
+///
+/// This is used to be able to store command handlers in a vector without having to worry about
+/// their `Args` type, given such generic is just a dummy type used to avoid implementation
+/// collisions.
 pub trait CommandHandlerWithoutArgs<State>: Send + Sync
 where
     State: StateBound,

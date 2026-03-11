@@ -7,7 +7,7 @@ use twilight_model::gateway::payload::outgoing::identify::IdentifyProperties;
 
 use crate::commands::context::CommandContext;
 use crate::commands::handle::Handle;
-use crate::commands::prefixes::Prefixes;
+use crate::commands::prefixes::{Prefixes, PrefixesContext};
 use crate::commands::{Command, parsing};
 use crate::state::StateBound;
 
@@ -137,7 +137,12 @@ where
                         let handle = handle.clone();
 
                         tokio::spawn(async move {
-                            let prefixes = prefixes.get(state.clone()).await;
+                            let prefixes_context = PrefixesContext {
+                                state: state.clone(),
+                                event: event.clone(),
+                            };
+
+                            let prefixes = prefixes.get(prefixes_context).await;
 
                             'prefixes: for prefix in prefixes {
                                 match parsing::parse(&prefix, &event.content) {

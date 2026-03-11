@@ -61,10 +61,9 @@
 //!
 //! # Quick Start
 //!
-//! To start with, create a [`Bot`](crate::bot::Bot) instance with
-//! [`Bot::new()`](crate::bot::Bot::new). The only argument it takes is the bot's state, which can
-//! be any type you want (`Send + Sync + Clone`). For this example, we'll just use `()`. We'll also
-//! use `.` as the bot's prefix.
+//! To start with, create a [`Bot`] instance with [`Bot::new()`](Bot::new). The only argument it
+//! takes is the bot's state, which can be any type you want (`Send + Sync + Clone`). For this
+//! example, we'll just use `()`. We'll also use `.` as the bot's prefix.
 //!
 //! ```
 //! #[tokio::main]
@@ -83,8 +82,8 @@
 //! our bot.
 //!
 //! Command handlers are simple to define. The simplest form of a command handler is an async
-//! function that takes a [`Context`](crate::bot::commands::context::Context) as its only argument.
-//! For example:
+//! function that takes a [`Context`](commands::context::CommandContext) as its only argument. For
+//! example:
 //!
 //! ```
 //! async fn ping(ctx: Context) {
@@ -151,4 +150,4 @@ pub use bot::Bot;
 pub use twilight_gateway::Intents;
 
 /// A untility alias to boxed `Send + Sync` futures.
-pub(crate) type DynFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
+pub type DynFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
