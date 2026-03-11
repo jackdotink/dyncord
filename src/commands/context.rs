@@ -1,6 +1,6 @@
 use twilight_model::gateway::payload::incoming::MessageCreate;
 
-use crate::commands::handle::{Handle, SendMessage};
+use crate::handle::{Handle, SendMessage};
 use crate::state::StateBound;
 
 #[derive(Clone)]
@@ -14,8 +14,8 @@ where
     /// The event that triggered the execution of this command.
     pub event: MessageCreate,
 
-    /// The internal handle, used to interact with the Discord API.
-    pub(crate) handle: Handle,
+    /// The internal handle, used to interact with the [`Bot`](crate::Bot) and the Discord API.
+    pub handle: Handle<State>,
 }
 
 impl<State> CommandContext<State>
@@ -30,7 +30,22 @@ where
     /// Returns:
     /// [`SendMessage`] - A message builder that is awaited to send the message.
     pub fn send(&self, content: impl Into<String>) -> SendMessage {
+        self.handle.send(self.event.channel_id, content.into())
+    }
+
+    /// Replies to the message that triggered the command.
+    ///
+    /// Note: This will not work if the command was triggered by a message that is too old to reply
+    ///       to.
+    ///
+    /// Arguments:
+    /// * `content` - The content of the message to send.
+    ///
+    /// Returns:
+    /// [`SendMessage`] - A message builder that is awaited to send the message.
+    pub fn reply(&self, content: impl Into<String>) -> SendMessage {
         self.handle
-            .send(self.event.channel_id.get(), content.into())
+            .send(self.event.channel_id, content.into())
+            .reply(self.event.id)
     }
 }

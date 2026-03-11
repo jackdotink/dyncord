@@ -1,3 +1,5 @@
+use std::env;
+
 use dyncord::Bot;
 use dyncord::commands::Command;
 use dyncord::commands::context::CommandContext;
@@ -12,10 +14,10 @@ async fn main() {
         .intents(Intents::MESSAGE_CONTENT)
         .command(Command::new("hello", hello));
 
-    bot.run("token").await;
+    bot.run(env::var("TOKEN").unwrap()).await;
 }
 
-async fn get_prefixes(ctx: PrefixesContext) -> Vec<String> {
+async fn get_prefixes(_ctx: PrefixesContext) -> Vec<String> {
     // In a real bot, you would probably want to fetch the prefixes from a database or something.
     // For this example, we'll just return a static list of prefixes.
     //

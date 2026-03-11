@@ -15,7 +15,7 @@ using very little `dyn`.
 
 A minimal bot using Dyncord looks like this:
 
-```rs
+```rust
 use dyncord::{Bot, Intents};
 use dyncord::commands::Command;
 use dyncord::commands::context::CommandContext;
@@ -40,7 +40,7 @@ Then on Discord, just send `>hello` in a channel the bot has access to and it wi
 
 Taking arguments is simple. Just add them to the handler function:
 
-```rs
+```rust
 async fn hello(ctx: CommandContext, name: String) {
     ctx.send(format!("Hello, {name}!")).await.unwrap();
 }
@@ -67,7 +67,7 @@ To start with, create a [`Bot`] instance with [`Bot::new()`](Bot::new). The only
 takes is the bot's state, which can be any type you want (`Send + Sync + Clone`). For this
 example, we'll just use `()`. We'll also use `.` as the bot's prefix.
 
-```rs
+```rust
 #[tokio::main]
 async fn main() {
     let bot = Bot::new(()).with_prefix(".");
@@ -76,7 +76,7 @@ async fn main() {
 
 Great! Now we have a bot instance, let's just add our bot's token and get it to run.
 
-```rs
+```rust
 bot.run("token").await.unwrap();
 ```
 
@@ -84,10 +84,10 @@ Check Discord and you'll see your bot has come online. Well done! Now, let's add
 our bot.
 
 Command handlers are simple to define. The simplest form of a command handler is an async
-function that takes a [`Context`](commands::context::CommandContext) as its only argument. For
-example:
+function that takes a [`CommandContext`](commands::context::CommandContext) as its only argument.
+For example:
 
-```rs
+```rust
 async fn ping(ctx: Context) {
     ctx.send("pong").await.unwrap();
 }
@@ -97,7 +97,7 @@ To add that command to our bot, we just need to create a
 [`Command`](commands::Command) instance and pass it to the bot's [`command`](Bot::command)
 method:
 
-```
+```rust
 let bot = Bot::new(()).with_prefix(".").command(Command::new("ping", ping));
 ```
 
@@ -110,7 +110,7 @@ messages sent in servers.
 
 Let's add those to our bot:
 
-```rs
+```rust
 let bot = Bot::new(())
     .intents(Intents::GUILD_MESSAGES | Intents::MESSAGE_CONTENT)
     .with_prefix(".")
@@ -126,8 +126,8 @@ is invoked.
 For example, if we want to take a user as an argument, we can just add a `User` argument to the
 handler function:
 
-```rs
-async fn hello(ctx: Context, name: String) {
+```rust
+async fn hello(ctx: CommandContext, name: String) {
     ctx.send(format!("Hello, {name}!")).await.unwrap();
 }
 ```
@@ -135,6 +135,16 @@ async fn hello(ctx: Context, name: String) {
 When invoking the command, just mention a user after the command name and the bot will parse
 the mentioned user and pass it to the handler. Adding the handler above to the bot and invoking
 it with `.hello @someuser` will make the bot reply with `Hello, @someuser!`.
+
+Handling events is just as simple. Just create a function that takes
+[`EventContext`](events::EventContext) as its only argument and pass it to the bot's
+[`on_event`](Bot::on_event) method. For example, to handle the `MessageCreate` event:
+
+```rust
+async fn on_message(ctx: EventContext<(), MessageCreate>) {
+    println!("Received a message: {}", ctx.event.content);
+}
+```
 
 # WIP
 

@@ -17,6 +17,13 @@
 //! ```
 //! let bot = Bot::new(()).command(Command::new("hello", hello));
 //! ```
+//! 
+//! You can also add aliases to your command, which are secondary names that can also be used to
+//! invoke the command.
+//! 
+//! ```
+//! let bot = Bot::new(()).command(Command::new("hello", hello).aliases(["hi", "hey"]));
+//! ```
 //!
 //! # Intents
 //!
@@ -161,9 +168,9 @@
 pub mod arguments;
 pub mod context;
 pub mod errors;
-pub mod handle;
 pub mod parsing;
 pub mod prefixes;
+pub(crate) mod event;
 
 use std::future::Future;
 use std::marker::PhantomData;
@@ -175,6 +182,47 @@ use crate::commands::context::CommandContext;
 use crate::commands::errors::CommandError;
 use crate::state::StateBound;
 
+/// A trait for types that can be converted into a list of command aliases.
+pub trait IntoAliases {
+    fn into_aliases(self) -> Vec<String>;
+}
+
+impl IntoAliases for String {
+    fn into_aliases(self) -> Vec<String> {
+        vec![self]
+    }
+}
+
+impl IntoAliases for &str {
+    fn into_aliases(self) -> Vec<String> {
+        vec![self.to_string()]
+    }
+}
+
+impl IntoAliases for Vec<String> {
+    fn into_aliases(self) -> Vec<String> {
+        self
+    }
+}
+
+impl IntoAliases for Vec<&str> {
+    fn into_aliases(self) -> Vec<String> {
+        self.into_iter().map(|s| s.to_string()).collect()
+    }
+}
+
+impl IntoAliases for &[&str] {
+    fn into_aliases(self) -> Vec<String> {
+        self.iter().map(|s| s.to_string()).collect()
+    }
+}
+
+impl<const N: usize> IntoAliases for [&str; N] {
+    fn into_aliases(self) -> Vec<String> {
+        self.iter().map(|s| s.to_string()).collect()
+    }
+}
+
 /// A command that can be routed to when a message is received.
 #[derive(Clone)]
 pub struct Command<State>
@@ -184,8 +232,11 @@ where
     /// The command's name, used to invoke the command.
     pub name: String,
 
+    /// Secondary names that can also be used to invoke the command.
+    pub aliases: Vec<String>,
+
     /// The command's handler, the function that executes when the command is run.
-    pub handler: Arc<dyn CommandHandlerWithoutArgs<State>>,
+    pub(crate) handler: Arc<dyn CommandHandlerWithoutArgs<State>>,
 }
 
 impl<State> Command<State>
@@ -221,8 +272,23 @@ where
 
         Command {
             name: name.into(),
+            aliases: Vec::new(),
             handler: Arc::new(wrapper),
         }
+    }
+
+    /// Adds aliases to the command.
+    /// 
+    /// Arguments:
+    /// * `aliases` - The command's aliases, which are secondary names that can also be used to
+    ///   invoke the command. It can be one or multiple aliases in various formats, such as a
+    ///   single string, a vector of strings, an array of string slices, etc.
+    /// 
+    /// Returns:
+    /// [`Command`] - The command with the added aliases.
+    pub fn aliases(mut self, aliases: impl IntoAliases) -> Self {
+        self.aliases.append(&mut aliases.into_aliases());
+        self
     }
 
     /// Runs the command handler.
@@ -232,7 +298,7 @@ where
     ///   channel, guild, etc.
     /// * `args` - The raw arguments passed to the command, which can be parsed into the command's
     ///   arguments.
-    pub async fn run(&self, ctx: CommandContext<State>, args: &str) {
+    pub(crate) async fn run(&self, ctx: CommandContext<State>, args: &str) {
         let _ = self.handler.run(ctx, args).await;
     }
 }

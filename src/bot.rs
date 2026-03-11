@@ -1,14 +1,14 @@
 use std::env::consts::OS;
 use std::sync::Arc;
 
-use twilight_gateway::{ConfigBuilder, Event, EventTypeFlags, Intents, Shard, ShardId, StreamExt};
+use twilight_gateway::{ConfigBuilder, EventTypeFlags, Intents, Shard, ShardId, StreamExt};
 use twilight_http::Client;
 use twilight_model::gateway::payload::outgoing::identify::IdentifyProperties;
 
-use crate::commands::context::CommandContext;
-use crate::commands::handle::Handle;
-use crate::commands::prefixes::{Prefixes, PrefixesContext};
-use crate::commands::{Command, parsing};
+use crate::commands::prefixes::Prefixes;
+use crate::commands::{self, Command};
+use crate::events::{EventHandler, EventHandlerWithoutEvent, EventHandlerWrapper};
+use crate::handle::Handle;
 use crate::state::StateBound;
 
 /// Holds all configurations related to a bot instance.
@@ -18,6 +18,9 @@ where
 {
     /// The list of commands the bot will route to when a message is received.
     commands: Vec<Command<State>>,
+
+    /// The list of event handlers the bot will execute when an event is received.
+    events: Vec<Arc<dyn EventHandlerWithoutEvent<State>>>,
 
     /// The bot's state, which can be any type you want (`Send + Sync + Clone`).
     state: State,
@@ -49,6 +52,7 @@ where
     pub fn new(state: State) -> Bot<State> {
         Bot {
             commands: Vec::new(),
+            events: Vec::new(),
             state,
             intents: Intents::empty(),
             shard: ShardId::ONE,
@@ -65,6 +69,23 @@ where
     /// [`Bot`] - The bot instance with the added command.
     pub fn command(mut self, command: Command<State>) -> Self {
         self.commands.push(command);
+        self
+    }
+
+    /// Adds an event handler to the bot's event handlers list.
+    ///
+    /// Arguments:
+    /// * `handler` - The event handler to add to the bot's event handlers list.
+    ///
+    /// Returns:
+    /// [`Bot`] - The bot instance with the added event handler.
+    pub fn on_event<E, F>(mut self, handler: F) -> Self
+    where
+        F: EventHandler<State, E> + 'static,
+        EventHandlerWrapper<F, E>: EventHandlerWithoutEvent<State> + 'static,
+    {
+        self.events
+            .push(Arc::new(EventHandlerWrapper::new(handler)));
         self
     }
 
@@ -106,16 +127,42 @@ where
         self
     }
 
+    /// Returns a handle to the bot, which can be used to interact with the bot's internal state.
+    ///
+    /// Note: This creates a handle using the current state of the bot. If you update the bot's
+    ///       state after calling this function, the handle will not reflect those updates.
+    ///
+    /// Arguments:
+    /// * `token` - The token used to authenticate the bot with the Discord API.
+    ///
+    /// Returns:
+    /// [`Handle`] - A handle to the bot.
+    pub fn handle(&self, token: impl Into<String>) -> Handle<State> {
+        let token = token.into();
+        let client = Arc::new(Client::new(token));
+
+        Handle {
+            client,
+            commands: Arc::new(self.commands.clone()),
+            prefixes: self.prefixes.clone(),
+        }
+    }
+
     /// Runs the bot with the provided token.
     ///
     /// This function will block the current task until the bot is stopped.
     ///
     /// Arguments:
     /// * `token` - The token used to authenticate the bot with the Discord API.
-    pub async fn run(&self, token: impl Into<String>) {
+    ///
+    /// Panics:
+    /// * If you set commands but didn't set prefixes. Message commands require prefixes to work,
+    ///   so if you set commands without setting prefixes, the bot will panic to prevent you from
+    ///   running a bot that won't respond to any commands. To fix this, use [`Bot::with_prefix()`]
+    ///   to set prefixes for your bot before calling [`Bot::run()`].
+    pub async fn run(mut self, token: impl Into<String>) {
         let token = token.into();
-        let client = Arc::new(Client::new(token.clone()));
-        let handle = Handle { client };
+        let handle = self.handle(token.clone());
 
         let config = ConfigBuilder::new(token.clone(), self.intents)
             .identify_properties(IdentifyProperties::new("Dyncord", "Dyncord", OS))
@@ -123,51 +170,17 @@ where
 
         let mut gateway = Shard::with_config(self.shard, config);
 
+        if !self.commands.is_empty() {
+            self = self.on_event(commands::event::on_message);
+        }
+
         while let Some(Ok(event)) = gateway.next_event(EventTypeFlags::all()).await {
-            match event {
-                Event::Ready(_) => {}
-                // TODO: Convert this into proper event handling, then make commands a built-in
-                //       `MessageCreate` handler.
-                Event::MessageCreate(event) => {
-                    if let Some(prefixes) = &self.prefixes {
-                        let event = *event.clone();
-                        let prefixes = prefixes.clone();
-                        let state = self.state.clone();
-                        let commands = self.commands.clone();
-                        let handle = handle.clone();
-
-                        tokio::spawn(async move {
-                            let prefixes_context = PrefixesContext {
-                                state: state.clone(),
-                                event: event.clone(),
-                            };
-
-                            let prefixes = prefixes.get(prefixes_context).await;
-
-                            'prefixes: for prefix in prefixes {
-                                match parsing::parse(&prefix, &event.content) {
-                                    Some(parts) => {
-                                        for command in &commands {
-                                            if command.name == parts.command_name {
-                                                let ctx = CommandContext {
-                                                    event: event.clone(),
-                                                    state,
-                                                    handle,
-                                                };
-
-                                                command.run(ctx, parts.command_args).await;
-
-                                                break 'prefixes;
-                                            }
-                                        }
-                                    }
-                                    None => continue,
-                                }
-                            }
-                        });
-                    }
+            for handler in &*self.events {
+                if let Some(future) =
+                    handler.handle(handle.clone(), self.state.clone(), event.clone())
+                {
+                    tokio::spawn(future);
                 }
-                _ => {}
             }
         }
     }

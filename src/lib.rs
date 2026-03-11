@@ -4,10 +4,11 @@ use std::pin::Pin;
 
 mod bot;
 pub mod commands;
+pub mod events;
+pub mod handle;
 mod state;
 
 pub use bot::Bot;
-
 pub use twilight_gateway::Intents;
 
 /// A untility alias to boxed `Send + Sync` futures.

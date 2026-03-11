@@ -1,3 +1,5 @@
+use std::env;
+
 use dyncord::Bot;
 use dyncord::commands::Command;
 use dyncord::commands::arguments::{IntoArgument, ParsingError};
@@ -12,7 +14,7 @@ async fn main() {
         .intents(Intents::MESSAGE_CONTENT)
         .command(Command::new("hello", hello));
 
-    bot.run("token").await;
+    bot.run(env::var("TOKEN").unwrap()).await;
 }
 
 async fn hello(ctx: CommandContext, name: Name) {
