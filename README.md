@@ -23,7 +23,8 @@ use dyncord::commands::context::CommandContext;
 #[tokio::main]
 async fn main() {
     let bot = Bot::new(())
-        .intents(Intents::GUILD_MESSAGES | INTENTS::MESSAGE_CONTENT)
+        .intents(Intents::GUILD_MESSAGES)
+        .intents(INTENTS::MESSAGE_CONTENT)
         .with_prefix(">")
         .command(Command::build("hello", hello));
 
