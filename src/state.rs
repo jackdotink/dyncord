@@ -55,6 +55,78 @@
 //!     // ...
 //! }
 //! ```
+//! 
+//! # Example
+//! 
+//! To demonstrate how to use custom states, let's build a bot that keeps track of how many
+//! messages it has received.
+//! 
+//! To start with, let's define our custom state type. We'll use an [`Arc`](std::sync::Arc) holding
+//! an [`AtomicUsize`](std::sync::atomic::AtomicUsize) to keep track of the message count in a
+//! thread-safe way.
+//! 
+//! ```
+//! #[derive(Default, Clone)]
+//! struct CounterState {
+//!     counter: Arc<AtomicUsize>,
+//! }
+//! ```
+//! 
+//! Great! Now, let's create a bot instance using this custom state. We'll initialize the counter
+//! to zero, which is the default.
+//! 
+//! ```
+//! let bot = Bot::new(CounterState::default());
+//! ```
+//! 
+//! To be able to count the messages and to run commands, we need the message content and guild
+//! message intents. So, let's make sure to enable those when creating the bot instance:
+//! 
+//! ```
+//! let bot = Bot::new(CounterState::default())
+//!     .intents(Intents::GUILD_MESSAGES)
+//!     .intents(Intents::MESSAGE_CONTENT);
+//! ```
+//! 
+//! Let's now add an event handler to count the messages. We'll listen for the `MessageCreate`
+//! event and increment our counter every time a message is created.
+//! 
+//! ```
+//! async fn on_message(ctx: EventContext<CounterState, MessageCreate>) {
+//!     ctx.state.counter.fetch_add(1, Ordering::SeqCst);
+//! }
+//! 
+//! let bot = Bot::new(CounterState::default())
+//!     .intents(Intents::GUILD_MESSAGES)
+//!     .intents(Intents::MESSAGE_CONTENT)
+//!     .on_event(on_message);  // Don't forget to add the event handler to the bot instance!
+//! ```
+//! 
+//! Finally, let's add a command to check the current message count. We'll create a simple command
+//! called `!count` that responds with the current count of messages.
+//! 
+//! ```
+//! async fn count_command(ctx: CommandContext<CounterState>) {
+//!     let count = ctx.state.counter.load(Ordering::SeqCst);
+//!     ctx.reply(format!("Message count: {}", count)).await.unwrap();
+//! }
+//!```
+//! 
+//! Let's add that command to the bot instance and set a prefix, and that should be it.
+//! 
+//! ```
+//! let bot = Bot::new(CounterState::default())
+//!     .intents(Intents::GUILD_MESSAGES)
+//!     .intents(Intents::MESSAGE_CONTENT)
+//!     .with_prefix("!")
+//!     .command(Command::new("count", count_command))
+//!     .on_event(on_message);
+//! 
+//! bot.run("your_token_here").await.unwrap();
+//! ```
+//! 
+//! That's it! Try sending some messages in a channel where the bot is present and then use the
+//! `!count` command to see the state updating. Nice, isn't it?
 
 /// Defines the boundaries for the state that can be used in a bot instance.
 pub trait StateBound: Clone + Send + Sync + 'static {}
