@@ -20,13 +20,9 @@
 
 use std::sync::Arc;
 
-use thiserror::Error;
-use twilight_model::channel::Message;
-use twilight_model::channel::message::Embed;
 use twilight_model::id::Id;
-use twilight_model::id::marker::{ChannelMarker, MessageMarker};
+use twilight_model::id::marker::ChannelMarker;
 
-use crate::DynFuture;
 use crate::aliases::DiscordClient;
 use crate::commands::CommandNode;
 use crate::commands::prefixes::Prefixes;
