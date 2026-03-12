@@ -35,11 +35,24 @@
 //!     .intents(Intents::MESSAGE_CONTENT)
 //!     .on_event(On::message_create(on_message));
 //! ```
+//! 
+//! To handle all incoming events, you can use the [`On::event`] handler, which will receive every
+//! event as an [`Event`]. For example:
+//! 
+//! ```
+//! let bot = Bot::new(())
+//!     .intents(Intents::GUILD_MESSAGES)
+//!     .intents(Intents::MESSAGE_CONTENT)
+//!     .on_event(On::event(on_event));
+//! 
+//! async fn on_event(ctx: EventContext<(), Event>) {
+//!     // Handle the event.
+//! }
+//! ```
 
 use std::sync::Arc;
 
-use twilight_gateway::Event;
-use twilight_model::gateway::payload::incoming::Hello;
+pub use twilight_gateway::Event;
 pub use twilight_model::gateway::payload::incoming::{
     AutoModerationActionExecution, AutoModerationRuleCreate, AutoModerationRuleDelete,
     AutoModerationRuleUpdate, BanAdd, BanRemove, ChannelCreate, ChannelDelete, ChannelPinsUpdate,
@@ -47,14 +60,15 @@ pub use twilight_model::gateway::payload::incoming::{
     EntitlementUpdate, GuildAuditLogEntryCreate, GuildCreate, GuildDelete, GuildEmojisUpdate,
     GuildIntegrationsUpdate, GuildScheduledEventCreate, GuildScheduledEventDelete,
     GuildScheduledEventUpdate, GuildScheduledEventUserAdd, GuildScheduledEventUserRemove,
-    GuildStickersUpdate, GuildUpdate, IntegrationCreate, IntegrationDelete, IntegrationUpdate,
-    InteractionCreate, InviteCreate, InviteDelete, MemberAdd, MemberChunk, MemberRemove,
-    MemberUpdate, MessageCreate, MessageDelete, MessageDeleteBulk, MessagePollVoteAdd,
-    MessagePollVoteRemove, MessageUpdate, PresenceUpdate, RateLimited, ReactionAdd, ReactionRemove,
-    ReactionRemoveAll, ReactionRemoveEmoji, Ready, RoleCreate, RoleDelete, RoleUpdate,
-    StageInstanceCreate, StageInstanceDelete, StageInstanceUpdate, ThreadCreate, ThreadDelete,
-    ThreadListSync, ThreadMemberUpdate, ThreadMembersUpdate, ThreadUpdate, TypingStart,
-    UnavailableGuild, UserUpdate, VoiceServerUpdate, VoiceStateUpdate, WebhooksUpdate,
+    GuildStickersUpdate, GuildUpdate, Hello, IntegrationCreate, IntegrationDelete,
+    IntegrationUpdate, InteractionCreate, InviteCreate, InviteDelete, MemberAdd, MemberChunk,
+    MemberRemove, MemberUpdate, MessageCreate, MessageDelete, MessageDeleteBulk,
+    MessagePollVoteAdd, MessagePollVoteRemove, MessageUpdate, PresenceUpdate, RateLimited,
+    ReactionAdd, ReactionRemove, ReactionRemoveAll, ReactionRemoveEmoji, Ready, RoleCreate,
+    RoleDelete, RoleUpdate, StageInstanceCreate, StageInstanceDelete, StageInstanceUpdate,
+    ThreadCreate, ThreadDelete, ThreadListSync, ThreadMemberUpdate, ThreadMembersUpdate,
+    ThreadUpdate, TypingStart, UnavailableGuild, UserUpdate, VoiceServerUpdate, VoiceStateUpdate,
+    WebhooksUpdate,
 };
 
 use crate::DynFuture;
@@ -102,6 +116,7 @@ macro_rules! impl_event_handler_for {
 }
 
 impl_event_handler_for!(
+    Event,
     AutoModerationActionExecution,
     AutoModerationRuleCreate,
     AutoModerationRuleDelete,
@@ -183,6 +198,7 @@ pub enum OnEvent<State>
 where
     State: StateBound,
 {
+    All(Arc<dyn EventHandler<State, Event>>),
     AutoModerationActionExecution(Arc<dyn EventHandler<State, AutoModerationActionExecution>>),
     AutoModerationRuleCreate(Arc<dyn EventHandler<State, AutoModerationRuleCreate>>),
     AutoModerationRuleDelete(Arc<dyn EventHandler<State, AutoModerationRuleDelete>>),
@@ -325,6 +341,15 @@ where
         state: State,
         event: Event,
     ) -> Option<DynFuture<'static, ()>> {
+        if let Self::All(handler) = self {
+            let ctx = EventContext {
+                state,
+                handle,
+                event: event.clone(),
+            };
+            return Some(Box::pin(handler.handle(ctx)));
+        }
+
         match_event_type!(
             event self state handle AutoModerationActionExecution,
             event self state handle AutoModerationRuleCreate,
@@ -444,6 +469,7 @@ macro_rules! impl_on {
 }
 
 impl On {
+    impl_on!(All event (Event));
     impl_on!(AutoModerationActionExecution auto_moderation_action_execution);
     impl_on!(AutoModerationRuleCreate auto_moderation_rule_create);
     impl_on!(AutoModerationRuleDelete auto_moderation_rule_delete);
