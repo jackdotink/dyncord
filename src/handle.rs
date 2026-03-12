@@ -21,27 +21,16 @@
 use std::sync::Arc;
 
 use thiserror::Error;
-use twilight_http::Client;
 use twilight_model::channel::Message;
+use twilight_model::channel::message::Embed;
 use twilight_model::id::Id;
 use twilight_model::id::marker::{ChannelMarker, MessageMarker};
 
 use crate::DynFuture;
+use crate::aliases::DiscordClient;
 use crate::commands::CommandNode;
 use crate::commands::prefixes::Prefixes;
 use crate::state::StateBound;
-
-/// An alias to make it easier to refer to the Discord HTTP client in the command handler.
-type DiscordClient = Arc<Client>;
-
-#[derive(Debug, Error)]
-pub enum SendingError {
-    #[error("An error occurred while sending the message: {0}")]
-    Twilight(#[from] twilight_http::Error),
-
-    #[error("An error occurred while parsing the response from the Discord API: {0}")]
-    TwilightParsing(#[from] twilight_http::response::DeserializeBodyError),
-}
 
 /// A handle to interact with the bot's internal state and the Discord API.
 ///
@@ -74,13 +63,17 @@ where
     /// Returns:
     /// [`SendMessage`] - A message builder that can be used to send the message.
     pub fn send(&self, channel_id: Id<ChannelMarker>, content: impl Into<String>) -> SendMessage {
-        SendMessage {
-            client: self.client.clone(),
-            channel_id,
-            content: content.into(),
-            replying_to: None,
-        }
+        SendMessage::new(self.client.clone(), channel_id, content)
     }
+}
+
+#[derive(Debug, Error)]
+pub enum SendingError {
+    #[error("An error occurred while sending the message: {0}")]
+    Twilight(#[from] twilight_http::Error),
+
+    #[error("An error occurred while parsing the response from the Discord API: {0}")]
+    TwilightParsing(#[from] twilight_http::response::DeserializeBodyError),
 }
 
 /// A builder for sending a message.
@@ -96,9 +89,26 @@ pub struct SendMessage {
 
     /// The ID of the message to reply to, if any.
     replying_to: Option<Id<MessageMarker>>,
+
+    /// The embeds to include in the message.
+    embeds: Vec<Embed>,
 }
 
 impl SendMessage {
+    pub(crate) fn new(
+        client: DiscordClient,
+        channel_id: Id<ChannelMarker>,
+        content: impl Into<String>,
+    ) -> Self {
+        Self {
+            client,
+            channel_id,
+            content: content.into(),
+            replying_to: None,
+            embeds: Vec::new(),
+        }
+    }
+
     /// Sets the message to reply to.
     ///
     /// Arguments:
@@ -111,6 +121,18 @@ impl SendMessage {
         self
     }
 
+    /// Adds an embed to the message.
+    ///
+    /// Arguments:
+    /// * `embed` - The embed to add to the message.
+    ///
+    /// Returns:
+    /// [`SendMessage`] - The message builder with the embed added.
+    pub fn embed(mut self, embed: impl Into<Embed>) -> Self {
+        self.embeds.push(embed.into());
+        self
+    }
+
     /// Sends the message to the specified channel.
     ///
     /// Returns:
@@ -120,6 +142,7 @@ impl SendMessage {
         let mut builder = self
             .client
             .create_message(self.channel_id)
+            .embeds(&self.embeds)
             .content(&self.content);
 
         if let Some(reply) = self.replying_to {

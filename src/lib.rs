@@ -2,11 +2,13 @@
 
 use std::pin::Pin;
 
+mod aliases;
 mod bot;
 pub mod builtin;
 pub mod commands;
 pub mod events;
 pub mod handle;
+pub mod builders;
 pub mod state;
 
 pub use bot::Bot;
