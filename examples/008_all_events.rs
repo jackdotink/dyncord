@@ -11,7 +11,7 @@ async fn main() {
         .intents(Intents::GUILD_MESSAGES)
         .on_event(On::event(on_event));
 
-    bot.run(env::var("TOKEN").unwrap()).await;
+    bot.run(env::var("TOKEN").unwrap()).await.unwrap();
 }
 
 async fn on_event(_ctx: EventContext<(), Event>) {}

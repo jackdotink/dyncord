@@ -2,8 +2,8 @@ use std::env;
 
 use dyncord::Bot;
 use dyncord::commands::Command;
-use dyncord::commands::context::CommandContext;
-use dyncord::commands::prefixes::PrefixesContext;
+use dyncord::commands::prefixed::context::PrefixedContext;
+use dyncord::commands::prefixed::prefixes::PrefixesContext;
 use twilight_gateway::Intents;
 
 #[tokio::main]
@@ -12,9 +12,9 @@ async fn main() {
         .with_prefix(get_prefixes)
         .intents(Intents::GUILD_MESSAGES)
         .intents(Intents::MESSAGE_CONTENT)
-        .command(Command::build("hello", hello));
+        .command(Command::prefixed("hello", hello));
 
-    bot.run(env::var("TOKEN").unwrap()).await;
+    bot.run(env::var("TOKEN").unwrap()).await.unwrap();
 }
 
 async fn get_prefixes(_ctx: PrefixesContext) -> Vec<String> {
@@ -23,10 +23,10 @@ async fn get_prefixes(_ctx: PrefixesContext) -> Vec<String> {
     //
     // You can access `ctx.state` to get the bot's state and `ctx.event` to get the message event
     // that triggered the execution of this prefix getter.
-    
+
     vec![".".to_string(), ">".to_string()]
 }
 
-async fn hello(ctx: CommandContext, name: String) {
+async fn hello(ctx: PrefixedContext, name: String) {
     ctx.send(format!("Hello, {name}!")).await.unwrap();
 }

@@ -28,21 +28,22 @@
 //!
 //! async fn dummy_command(_ctx: CommandContext) {}
 //! ```
-//! 
+//!
 //! Check out the [example](../source/examples/005_builtin_help.rs) for a more complete example of
 //! how to use the help command.
 
-use crate::commands::context::CommandContext;
-use crate::commands::{self, Command, CommandGroup};
+use crate::commands;
+use crate::commands::prefixed::context::PrefixedContext;
+use crate::commands::prefixed::{PrefixedCommandGroup, PrefixedCommand};
 use crate::state::StateBound;
 
 /// A help command handler, which displays a list of the bot's commands when called.
-pub async fn help_command<State>(ctx: CommandContext<State>, command_name: Option<String>)
+pub async fn help_command<State>(ctx: PrefixedContext<State>, command_name: Option<String>)
 where
     State: StateBound,
 {
     if let Some(command_name) = command_name {
-        for command in commands::flatten(&ctx.handle.commands) {
+        for command in commands::flatten_prefixed(&ctx.handle.commands) {
             if command.identifiers().contains(&command_name) {
                 ctx.send(display_command_help(&ctx.command_prefix, command))
                     .await
@@ -57,12 +58,12 @@ where
     }
 }
 
-fn display_general_help<State>(ctx: &CommandContext<State>) -> String
+fn display_general_help<State>(ctx: &PrefixedContext<State>) -> String
 where
     State: StateBound,
 {
-    let bot_commands = commands::get_commands(&ctx.handle.commands);
-    let bot_groups = commands::get_groups(&ctx.handle.commands);
+    let bot_commands = commands::get_prefixed_commands(&ctx.handle.commands);
+    let bot_groups = commands::get_prefixed_groups(&ctx.handle.commands);
 
     let mut result = String::new();
 
@@ -92,7 +93,11 @@ where
     result
 }
 
-fn display_command<State>(prefix: &str, command: &Command<State>, indentation: usize) -> String
+fn display_command<State>(
+    prefix: &str,
+    command: &PrefixedCommand<State>,
+    indentation: usize,
+) -> String
 where
     State: StateBound,
 {
@@ -105,7 +110,7 @@ where
     result
 }
 
-fn display_group<State>(prefix: &str, group: &CommandGroup<State>, indentation: usize) -> String
+fn display_group<State>(prefix: &str, group: &PrefixedCommandGroup<State>, indentation: usize) -> String
 where
     State: StateBound,
 {
@@ -121,8 +126,8 @@ where
 
     result.push_str(&header);
 
-    let bot_commands = commands::get_commands(&group.children);
-    let bot_groups = commands::get_groups(&group.children);
+    let bot_commands = commands::get_prefixed_commands(&group.children);
+    let bot_groups = commands::get_prefixed_groups(&group.children);
 
     for command in bot_commands {
         result.push_str(&display_command(prefix, command, indentation + 2));
@@ -138,7 +143,7 @@ where
     result
 }
 
-fn display_command_help<State>(prefix: &str, command: &Command<State>) -> String
+fn display_command_help<State>(prefix: &str, command: &PrefixedCommand<State>) -> String
 where
     State: StateBound,
 {

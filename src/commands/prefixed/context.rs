@@ -5,7 +5,7 @@ use crate::state::StateBound;
 use crate::wrappers::actions::message_create::CreateMessage;
 
 #[derive(Clone)]
-pub struct CommandContext<State = ()>
+pub struct PrefixedContext<State = ()>
 where
     State: StateBound,
 {
@@ -28,7 +28,7 @@ where
     pub command_args: String,
 }
 
-impl<State> CommandContext<State>
+impl<State> PrefixedContext<State>
 where
     State: StateBound,
 {

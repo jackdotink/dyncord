@@ -1,6 +1,6 @@
 use thiserror::Error;
 
-use crate::commands::arguments::ParsingError;
+use crate::commands::prefixed::arguments::ParsingError;
 
 #[derive(Debug, Error)]
 pub enum CommandError {

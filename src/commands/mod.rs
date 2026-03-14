@@ -1,784 +1,175 @@
-//! Message-based (prefixed) commands for [`Bot`](crate::Bot).
+//! Dyncord prefixed and slash commands.
 //!
-//! Message commands in Dyncord are simple to create. They're in great part just a function that
-//! takes [`CommandContext`] as its first argument and any* amount of arguments implementing
-//! [`IntoArgument`] as the rest of the arguments. The return type can be anything convenient for
-//! you as long as the function is asynchronous.
+//! This module is divided into two sub-modules, [`prefixed`] and [`slash`].
 //!
-//! A basic command looks like this:
+//! - [`prefixed`] - Good old prefixed commands. E.g. `!help`.
+//! - [`slash`] - Brand new slash commands. E.g. `/help`.
 //!
-//! ```
-//! async fn hello(ctx: CommandContext) {}
-//! ```
+//! Dyncord allows you to use both in the same bot, registration and routing is done automatically.
 //!
-//! To add such command handler to your bot, just create a [`Command`] with the handler and add it
-//! to your bot with [`Bot::command()`](crate::bot::Bot::command):
+//! # Prefixed Commands
 //!
-//! ```
-//! let bot = Bot::new(()).command(Command::build("hello", hello));
-//! ```
+//! Prefixed commands are message-based and are executed when the user sends a prefix plus the
+//! command name. For example, where the prefix is `!`, the command's name is `hello`, and it takes
+//! a string argument, users can invoke the command by sending `!hello Mike` in a channel the bot
+//! has access to.
 //!
-//! You can also add aliases to your command, which are secondary names that can also be used to
-//! invoke the command.
+//! To define such commands, create an async function that takes
+//! [`PrefixedContext`](prefixed::context::PrefixedContext) as its first argument. For example, to
+//! build our `hello` command mentioned in the example above, the function would be
 //!
 //! ```
-//! let bot = Bot::new(()).command(Command::build("hello", hello).aliases(["hi", "hey"]));
+//! async fn handle_hello(ctx: PrefixedContext) {}
 //! ```
 //!
-//! # Intents
-//!
-//! To receive and respond to message comnands, bots need at least 2 intents: `MESSAGE_CONTENT` and
-//! `GUILD_MESSAGES` or `DIRECT_MESSAGES` (or both) depending on where you want to receive
-//! commands. You can add them to your bot with [`Bot::intents()`](crate::bot::Bot::intents):
+//! That command took one string argument, so let's make it an argument in the function too.
 //!
 //! ```
-//! Bot::new(()).intents(Intents::GUILD_MESSAGES | Intents::MESSAGE_CONTENT);
+//! async fn handle_hello(ctx: PrefixedContext, name: String) {}
 //! ```
 //!
-//! # Prefixes
-//!
-//! By default, Dyncord doesn't use any prefix for message commands, so you need to set at least
-//! one for it to start routing message commands. You can set a multiple prefixes and even compute
-//! them dynamically based on the message and the bot's state. To set one prefix, just call
-//! [`Bot::with_prefix()`](crate::bot::Bot::with_prefix) with the prefix you want to use:
-//!
-//! ```
-//! Bot::new(()).with_prefix(".");
-//! ```
-//!
-//! To set multiple prefixes, just call [`Bot::with_prefix()`](crate::bot::Bot::with_prefix) with a
-//! more prefixes:
-//!
-//! ```
-//! Bot::new(()).with_prefix([".", "!"]);
-//! ```
-//!
-//! That'll make the bot listen for both `.` and `!` as prefixes. So, for example, if you have a
-//! command named "hello", you can invoke it with either `.hello` or `!hello`.
-//!
-//! To compute prefixes dynamically, you can pass a function as an argument to
-//! [`Bot::with_prefix()`](crate::bot::Bot::with_prefix). The function takes a
-//! [`PrefixesContext`](prefixes::PrefixesContext) as an argument and returns a `Vec<String>` with
-//! the prefixes to use for the message. For example:
-//!
-//! ```
-//! async fn get_prefixes(ctx: PrefixesContext) -> Vec<String> {
-//!     // Dummy code to get the prefixes from a hypothetical database.
-//!     ctx.state.db.get_prefixes(ctx.event.guild_id.get()).await
-//! }
-//!
-//! let bot = Bot::new(()).with_prefix(get_prefixes);
-//! ```
-//!
-//! For more complex implementations of dynamic prefixes, you can also implement
-//! [`Prefixes`](prefixes::Prefixes) for a type and pass an instance of it to
-//! [`Bot::with_prefix()`](crate::bot::Bot::with_prefix) instead.
-//!
-//! # Arguments
-//!
-//! Parsing command arguments is easy with Dyncord. You just need to add them as arguments to your
-//! command handler function and make sure their types implement [`IntoArgument`]. Dyncord will
-//! take care of parsing the arguments from the raw string and passing them to your handler
-//! properly.
-//!
-//! Arguments are usually delimited by a whitespace. For example, a command called "add" could take
-//! 3 arguments like `!add 1 2 3`, and the handler would look like this:
-//!
-//! ```
-//! async fn add(ctx: CommandContext, a: i32, b: i32, c: i32) {
-//!     let sum = a + b + c;
-//!
-//!     ctx.send(format!("The answer is {sum}")).await.unwrap();
-//! }
-//! ```
-//!
-//! Currently, only a few types are supported as arguments natively:
-//!
-//! - `String` - A single-word argument, or a quoted string. E.g. `!command hello` -> `hello`,
-//!   `!command hello world` -> `hello`, `!command "hello world"` -> `hello world`,
-//!   `!command 'Someone\'s cat'` -> `Someone's cat`, `!command 'hello world` -> `'hello`,
-//!   `!command \'hello\'` -> `'hello'`.
-//! - [`GreedyString`](arguments::GreedyString) - A string that consumes all remaining raw
-//!   arguments.
-//! - `char` - A single character argument. The argument must be a single character long, otherwise
-//!   it'll fail to parse.
-//! - `i8`, `i16`, `i32`, `i64`, `i128`, `isize` - Signed integer arguments.
-//! - `u8`, `u16`, `u32`, `u64`, `u128`, `usize` - Unsigned integer arguments.
-//! - `f32`, `f64` - Floating point arguments.
-//! - `bool` - A boolean argument. "true" | "y" | "yes" | "1" | "on" are considered `true`, while
-//!   "false" | "n" | "no" | "0" | "off" are considered `false`.
-//! - `Option<T>` - An optional argument. If the argument fails to parse, it'll be considered
-//!   `None` instead of stopping the command's execution.
-//!
-//! Writing a custom argument type is also easy. You just need to implement [`IntoArgument`] for
-//! your type and add the parsing logic in the `into_argument` function.
-//!
-//! For example, let's create a custom `Name` argument type that takes two words as the first and
-//! last name of a person:
-//!
-//! ```
-//! struct Name(String, String);
-//!
-//! impl IntoArgument<()> for Name {
-//!     fn into_argument(
-//!         _ctx: CommandContext,
-//!         args: String,
-//!     ) -> dyncord::DynFuture<'static, Result<(Self, String), ParsingError>> {
-//!         Box::pin(async move {
-//!             // Collect into a vector of the first up to 3 parts of the arguments, since we need
-//!             // 2 words for the name and the rest of the raw arguments.
-//!             let mut parts = args.splitn(3, ' ').collect::<Vec<&str>>();
-//!
-//!             // It must have a first and last name, otherwise it's invalid.
-//!             if parts.len() < 2 {
-//!                 return Err(ParsingError::InvalidArgument);
-//!             }
-//!
-//!             // Only 2 words, meaning nothing remains. We add an empty string as the remaining
-//!             // raw arguments.
-//!             if parts.len() == 2 {
-//!                 parts.push("");
-//!             }
-//!
-//!             Ok((
-//!                 Name(parts[0].trim().to_string(), parts[1].trim().to_string()),
-//!                 parts[2].to_string(),
-//!             ))
-//!         })
-//!     }
-//! }
-//! ```
-//!
-//! # Command Context
-//!
-//! The command context is a struct that contains information about the context in which the
-//! command is being executed. This includes things like the event that triggered the command, the
-//! prefix used, the author, channel, guild, your bot's state, and more. It also provides some
-//! utility functions to interact with the Discord API, such as sending messages.
-//!
-//! The [`CommandContext<State>`] is the required first argument of all command handlers. It takes
-//! a generic `State` type which is the same as the one used in your bot, or `()` by default when
-//! you don't need any state.
-//!
-//! To send a message in the same channel the command was executed, use [`CommandContext::send()`]:
-//!
-//! ```
-//! async fn hello(ctx: CommandContext) {
-//!     ctx.send("Hello, world!").await.unwrap();
-//! }
-//! ```
-//!
-//! # Command Groups
-//!
-//! When your bot starts to grow and you have many commands, it can be useful to group them
-//! together by utility. For example, you may want to group admin commands together and
-//! entertainment commands together. Dyncord supports this with command groups, which are just a
-//! collection of commands, and optionally more subgroups.
-//!
-//! You can create a [`CommandGroup`] with similar fields to [`Command`], and add commands to it
-//! like you do to your [`Bot`](crate::Bot).
+//! Now, let's register it in our bot
 //!
 //! ```
 //! let bot = Bot::new(())
-//!     .command(Command::build("help", help_command))
-//!     .nest(
-//!         CommandGroup::build("admin")
-//!             .command(Command::build("ban", ban_command))
-//!             .command(Command::build("kick", kick_command))
-//!             .command(Command::build("mute", mute_command))
-//!     )
-//!     .nest(
-//!         CommandGroup::build("fun")
-//!             .command(Command::build("joke", joke_command))
-//!             .command(Command::build("meme", meme_command))
-//!     );
+//!     .intents(Intents::MESSAGE_CONTENT)
+//!     .intents(Intents::GUILD_MESSAGES)
+//!     .with_prefix("!")
+//!     .command(Command::prefixed("hello", handle_hello));
+//!
+//! bot.run("token").await;
 //! ```
 //!
-//! Command groups don't change the functionality nor execution of such commands. They're only
-//! grouped internally, and you can use such grouping to display them more organizedly in a help
-//! command.
+//! Great! Our bot now has a hello command. Try inviting the bot to your server and you'll see the
+//! bot comes online when you run your binary. The command is invoked by sending `!hello yourname`.
+//! However, no matter what you send, the bot does nothing. It's still correctly handling your
+//! command, it just wasn't told to do anything when that happens yet. Let's do that.
+//!
+//! In your command handler function, add the following:
+//!
+//! ```
+//! async fn handle_hello(ctx: PrefixedContext, name: String) {
+//!     ctx.send(format!("Hey there, {name}!")).await.unwrap();
+//! }
+//! ```
+//!
+//! Try re-running your bot, then send `!hello yourname` in your server. Voilà! The bot responded
+//! according to the `handle_hello` function. Well done!
+//!
+//! You may have realized that if you pass more than a single word to the command, it just says hi
+//! back with the first word. By default, [`String`] arguments take one word as an argument.
+//! However, dyncord will also take more than one word as the argument if you quote the argument.
+//! Try sending `!hello "Mike Wazowski"`. It works! What about single quotes?
+//! `!hello 'Mike Wazowski'` and it also works! `!hello 'Mike\'s Cat'` and woah? Guess what, it
+//! also works!
+//!
+//! For a more in depth introduction into prefixed commands, or just as a reference, check the
+//! [`prefixed` module's documentation](prefixed). It has a more in depth guide about how to use
+//! prefixed commands to their full power. Good luck!
+//!
+//! # Slash Commands
+//!
+//! Slash commands are more structured API-wise than prefixed commands. This is due to Discord's
+//! need to know about every command, command group, and command argument in advance. The creation
+//! of slash commands is almost as simple as the creation of prefixed commands, and type-safe so
+//! that if any metadata is missing, you'll get an error at compile time instead of at runtime.
+//!
+//! Like prefixed commands, slash commands take a first required argument called the context. It
+//! contains data about the command's invocation, together with metadata about the command itself
+//! and functions to respond to the interaction. Such context type is
+//! [`SlashContext`](slash::context::SlashContext).
+//!
+//! To create your first slash command handler, create an async function that takes
+//! [`SlashContext`](slash::context::SlashContext) as its first argument.
+//!
+//! ```
+//! async fn handle_hello(ctx: SlashContext) {
+//!     ctx.respond("Hey there!").await.unwrap();
+//! }
+//! ```
+//!
+//! Let's pass it to our [`Bot`](crate::Bot).
+//!
+//! ```
+//! let bot = Bot::new(()).command(Command::slash("hello", handle_hello));
+//!
+//! bot.run("token").await;
+//! ```
+//!
+//! Great. Run your binary, get on Discord, and you'll see the bot is online and when you type
+//! `/hello` your new command appears. Try running it!
+//!
+//! Now, let's add an argument to it, because right now our command doesn't know who to say hi to.
+//! Let's add a name argument.
+//!
+//! ```
+//! async fn handle_hello(ctx: SlashContext, name: String) {
+//!     ctx.respond(format!("Hey {name}!")).await.unwrap();
+//! }
+//! ```
+//!
+//! Perfect. Try to run it and now... it fails to run. Why?
+//!
+//! Remember that some paragraphs ago, we said Discord needs some more information when creating a
+//! command than just the argument name in the handler. If dyncord were to send the command as-is,
+//! Discord would fail to register it because it would be lacking metadata, and therefore dyncord
+//! fails early.
+//! 
+//! Lets fix our error by passing metadata about our `name` argument to our [`Command`] builder.
+//! Argument (options, as Discord calls them) metadata is defined through
+//! [`Argument`](slash::arguments::Argument). In this case, we want to create a string argument so
+//! we'll use [`Argument::string()`](slash::arguments::Argument::string).
+//! 
+//! ```
+//! let bot = Bot::new(()).command(
+//!     Command::slash("hello", handle_hello)
+//!         .argument(Argument::string("name"))
+//! );
+//! ```
+//!
+//! That's it! Go back to Discord and check your command. When you type `/hello` in your message
+//! bar, you'll see that it now shows one option called "name". Perfect.
+//!
+//! You will see that the command's summary is "A Dyncord command." and the argument's summary is
+//! "A Dyncord argument." To change those defaults, both the command builder and the argument
+//! builder have `.description()` associated functions you can call.
+//!
+//! For example,
+//!
+//! ```
+//! let bot = Bot::new(()).command(
+//!     Command::slash("hello", handle_hello)
+//!         .description("Says hi to someone.")
+//!         .argument(
+//!             Argument::string("name")
+//!                 .description("Your name, to sell it to *ahem* to say hi.")
+//!         )
+//! );
+//! ```
+//!
+//! If you run your binary again, you'll see that after some seconds the descriptions get updated.
+//!
+//! Last but not least, there's always the need for optional arguments. However, you'll see that
+//! just passing `Option<String>` to your command handler as an argument will fail to run once
+//! again. You have to mark your argument as optional by calling `.optional()` on it.
+//!
+//! This is only a short introduction to building slash commands with Dyncord. For a more extensive
+//! documentation on how to implement them, check out the [`slash` module's documentation](slash).
+//! It has all the details you'll need to be able to create slash commands more in detail. For now,
+//! happy coding!
 
-pub mod arguments;
-pub mod context;
-pub mod errors;
-pub(crate) mod event;
-pub mod parsing;
-pub mod prefixes;
-
-use std::future::Future;
-use std::marker::PhantomData;
-use std::sync::Arc;
-
-use crate::DynFuture;
-use crate::commands::arguments::IntoArgument;
-use crate::commands::context::CommandContext;
-use crate::commands::errors::CommandError;
+use crate::commands::prefixed::{
+    PrefixedCommand, PrefixedCommandBuilder, PrefixedCommandGroup, PrefixedCommandGroupBuilder,
+    PrefixedCommandHandler,
+};
+use crate::commands::slash::{
+    SlashCommand, SlashCommandBuilder, SlashCommandGroup, SlashCommandGroupBuilder,
+    SlashCommandHandler,
+};
 use crate::state::StateBound;
 
-/// A trait for types that can be converted into a list of command aliases.
-pub trait IntoAliases {
-    fn into_aliases(self) -> Vec<String>;
-}
-
-impl IntoAliases for String {
-    fn into_aliases(self) -> Vec<String> {
-        vec![self]
-    }
-}
-
-impl IntoAliases for &str {
-    fn into_aliases(self) -> Vec<String> {
-        vec![self.to_string()]
-    }
-}
-
-impl IntoAliases for Vec<String> {
-    fn into_aliases(self) -> Vec<String> {
-        self
-    }
-}
-
-impl IntoAliases for Vec<&str> {
-    fn into_aliases(self) -> Vec<String> {
-        self.into_iter().map(|s| s.to_string()).collect()
-    }
-}
-
-impl IntoAliases for &[&str] {
-    fn into_aliases(self) -> Vec<String> {
-        self.iter().map(|s| s.to_string()).collect()
-    }
-}
-
-impl<const N: usize> IntoAliases for [&str; N] {
-    fn into_aliases(self) -> Vec<String> {
-        self.iter().map(|s| s.to_string()).collect()
-    }
-}
-
-/// A command that can be routed to when a message is received.
-#[derive(Clone)]
-pub struct Command<State>
-where
-    State: StateBound,
-{
-    /// The command's name, used to invoke the command.
-    pub name: String,
-
-    /// Secondary names that can also be used to invoke the command.
-    pub aliases: Vec<String>,
-
-    /// The command's summary. Ideally a short one-line description of the command.
-    pub summary: Option<String>,
-
-    /// The command's description. Ideally a more detailed description of the command, its
-    /// arguments, and how to use it.
-    pub description: Option<String>,
-
-    /// The command's handler, the function that executes when the command is run.
-    pub(crate) handler: Arc<dyn CommandHandlerWithoutArgs<State>>,
-}
-
-impl<State> Command<State>
-where
-    State: StateBound,
-{
-    /// Creates a new command's builder.
-    ///
-    /// For example:
-    /// ```rust
-    /// async fn hello(ctx: Context, user: User) -> Result<(), CommandError> {
-    ///     ctx.send(format!("Hey, {}!", user.name)).await?;
-    ///
-    ///     Ok(())
-    /// }
-    ///
-    /// let bot = Bot::new().command(Command::build("hello", hello));
-    /// bot.run("token").await.unwrap();
-    /// ```
-    ///
-    /// Arguments:
-    /// * `name` - The command's name, used to invoke the command.
-    /// * `handler` - The command's handler, the function that executes when the command is run.
-    ///
-    /// Returns:
-    /// [`Command`] - A new command to route to.
-    pub fn build<F, Args>(name: impl Into<String>, handler: F) -> CommandBuilder<State>
-    where
-        F: CommandHandler<State, Args> + 'static,
-        Args: Send + Sync + 'static,
-    {
-        CommandBuilder::new(name, handler)
-    }
-
-    /// Gets a list of all the command's identifiers, which are the command's name and its aliases.
-    ///
-    /// Returns:
-    /// `Vec<String>` - A list of all the command's identifiers.
-    pub fn identifiers(&self) -> Vec<String> {
-        let mut identifiers = vec![self.name.clone()];
-        identifiers.extend(self.aliases.clone());
-        identifiers
-    }
-
-    /// Runs the command handler.
-    ///
-    /// Arguments:
-    /// * `ctx` - The context of the command, which contains information about the message,
-    ///   channel, guild, etc.
-    /// * `args` - The raw arguments passed to the command, which can be parsed into the command's
-    ///   arguments.
-    pub(crate) async fn run(&self, ctx: CommandContext<State>, args: &str) {
-        let _ = self.handler.run(ctx, args).await;
-    }
-}
-
-/// A builder for [`Command`] that allows setting optional fields like aliases, summary, and description.
-pub struct CommandBuilder<State>
-where
-    State: StateBound,
-{
-    name: String,
-    aliases: Vec<String>,
-    summary: Option<String>,
-    description: Option<String>,
-    handler: Arc<dyn CommandHandlerWithoutArgs<State>>,
-}
-
-impl<State> CommandBuilder<State>
-where
-    State: StateBound,
-{
-    /// Creates a new command builder with the given name and handler.
-    ///
-    /// Arguments:
-    /// * `name` - The command's name, used to invoke the command.
-    /// * `handler` - The command's handler, the function that executes when the command is run.
-    ///
-    /// Returns:
-    /// [`CommandBuilder`] - A new command builder with the given name and handler.    
-    fn new<F, Args>(name: impl Into<String>, handler: F) -> Self
-    where
-        F: CommandHandler<State, Args> + 'static,
-        Args: Send + Sync + 'static,
-    {
-        let wrapper = CommandHandlerHolder::new(handler);
-
-        CommandBuilder {
-            name: name.into(),
-            aliases: Vec::new(),
-            summary: None,
-            description: None,
-            handler: Arc::new(wrapper),
-        }
-    }
-
-    /// Adds one or more aliases to the command.
-    ///
-    /// Arguments:
-    /// * `aliases` - One or more aliases to add to the command. Can be a single string, a vector
-    ///   of strings, or an array of string slices.
-    ///
-    /// Returns:
-    /// [`CommandBuilder`] - The command builder with the added aliases.
-    pub fn aliases(mut self, aliases: impl IntoAliases) -> Self {
-        self.aliases = aliases.into_aliases();
-        self
-    }
-
-    /// Sets the command's summary, which is ideally a short one-line description of the command.
-    ///
-    /// Arguments:
-    /// * `summary` - The command's summary.
-    ///
-    /// Returns:
-    /// [`CommandBuilder`] - The command builder with the set summary.
-    pub fn summary(mut self, summary: impl Into<String>) -> Self {
-        self.summary = Some(summary.into());
-        self
-    }
-
-    /// Sets the command's description, which is ideally a more detailed description of the
-    /// command.
-    ///
-    /// Arguments:
-    /// * `description` - The command's description.
-    ///
-    /// Returns:
-    /// [`CommandBuilder`] - The command builder with the set description.
-    pub fn description(mut self, description: impl Into<String>) -> Self {
-        self.description = Some(description.into());
-        self
-    }
-
-    /// Builds the command, consuming the builder and returning a [`Command`] with the set fields.
-    ///
-    /// Returns:
-    /// [`Command`] - A command with the set fields from the builder.
-    pub(crate) fn build(self) -> Command<State> {
-        Command {
-            name: self.name,
-            aliases: self.aliases,
-            summary: self.summary,
-            description: self.description,
-            handler: self.handler,
-        }
-    }
-}
-
-pub type CommandResult = Result<(), CommandError>;
-
-/// Trait for command handlers, the functions that execute when a command is run.
-pub trait CommandHandler<State, Args>: Send + Sync
-where
-    State: StateBound,
-{
-    /// Runs the command handler.
-    ///
-    /// Arguments:
-    /// * `ctx` - The context of the command, which contains information about the message,
-    ///   channel, guild, etc.
-    /// * `args` - The raw arguments passed to the command, which can be parsed into the command's
-    ///   arguments.
-    ///
-    /// Returns:
-    /// [`CommandResult`] - A future that resolves when the command handler has finished executing.
-    /// This is equivalent to an asynchronous function, so you can just run `.run().await`.
-    fn run(&self, ctx: CommandContext<State>, args: &str) -> DynFuture<'_, CommandResult>;
-}
-
-impl<State, F, Fut, Res> CommandHandler<State, ()> for F
-where
-    F: Fn(CommandContext<State>) -> Fut + Send + Sync + 'static,
-    Fut: Future<Output = Res> + Send,
-    State: StateBound,
-{
-    fn run(&self, ctx: CommandContext<State>, _args: &str) -> DynFuture<'_, CommandResult> {
-        Box::pin(async move {
-            (self)(ctx).await;
-
-            Ok(())
-        })
-    }
-}
-
-impl<State, Func, Fut, A, Res> CommandHandler<State, (A,)> for Func
-where
-    Func: Fn(CommandContext<State>, A) -> Fut + Send + Sync + 'static,
-    Fut: Future<Output = Res> + Send,
-    State: StateBound,
-    A: IntoArgument<State>,
-{
-    fn run(&self, ctx: CommandContext<State>, args: &str) -> DynFuture<'_, CommandResult> {
-        let args = args.to_string();
-
-        Box::pin(async move {
-            let (a, _remaining) = A::into_argument(ctx.clone(), args).await?;
-
-            (self)(ctx, a).await;
-
-            Ok(())
-        })
-    }
-}
-
-impl<State, Func, Fut, A, B, Res> CommandHandler<State, (A, B)> for Func
-where
-    Func: Fn(CommandContext<State>, A, B) -> Fut + Send + Sync + 'static,
-    Fut: Future<Output = Res> + Send,
-    State: StateBound,
-    A: IntoArgument<State>,
-    B: IntoArgument<State>,
-{
-    fn run(&self, ctx: CommandContext<State>, args: &str) -> DynFuture<'_, CommandResult> {
-        let args = args.to_string();
-
-        Box::pin(async move {
-            let (a, remaining) = A::into_argument(ctx.clone(), args).await?;
-            let (b, _remaining) = B::into_argument(ctx.clone(), remaining).await?;
-
-            (self)(ctx, a, b).await;
-
-            Ok(())
-        })
-    }
-}
-
-impl<State, Func, Fut, A, B, C, Res> CommandHandler<State, (A, B, C)> for Func
-where
-    Func: Fn(CommandContext<State>, A, B, C) -> Fut + Send + Sync + 'static,
-    Fut: Future<Output = Res> + Send,
-    State: StateBound,
-    A: IntoArgument<State>,
-    B: IntoArgument<State>,
-    C: IntoArgument<State>,
-{
-    fn run(&self, ctx: CommandContext<State>, args: &str) -> DynFuture<'_, CommandResult> {
-        let args = args.to_string();
-
-        Box::pin(async move {
-            let (a, remaining) = A::into_argument(ctx.clone(), args).await?;
-            let (b, remaining) = B::into_argument(ctx.clone(), remaining).await?;
-            let (c, _remaining) = C::into_argument(ctx.clone(), remaining).await?;
-
-            (self)(ctx, a, b, c).await;
-
-            Ok(())
-        })
-    }
-}
-
-impl<State, Func, Fut, A, B, C, D, Res> CommandHandler<State, (A, B, C, D)> for Func
-where
-    Func: Fn(CommandContext<State>, A, B, C, D) -> Fut + Send + Sync + 'static,
-    Fut: Future<Output = Res> + Send,
-    State: StateBound,
-    A: IntoArgument<State>,
-    B: IntoArgument<State>,
-    C: IntoArgument<State>,
-    D: IntoArgument<State>,
-{
-    fn run(&self, ctx: CommandContext<State>, args: &str) -> DynFuture<'_, CommandResult> {
-        let args = args.to_string();
-
-        Box::pin(async move {
-            let (a, remaining) = A::into_argument(ctx.clone(), args).await?;
-            let (b, remaining) = B::into_argument(ctx.clone(), remaining).await?;
-            let (c, remaining) = C::into_argument(ctx.clone(), remaining).await?;
-            let (d, _remaining) = D::into_argument(ctx.clone(), remaining).await?;
-
-            (self)(ctx, a, b, c, d).await;
-
-            Ok(())
-        })
-    }
-}
-
-impl<State, Func, Fut, A, B, C, D, E, Res> CommandHandler<State, (A, B, C, D, E)> for Func
-where
-    Func: Fn(CommandContext<State>, A, B, C, D, E) -> Fut + Send + Sync + 'static,
-    Fut: Future<Output = Res> + Send,
-    State: StateBound,
-    A: IntoArgument<State>,
-    B: IntoArgument<State>,
-    C: IntoArgument<State>,
-    D: IntoArgument<State>,
-    E: IntoArgument<State>,
-{
-    fn run(&self, ctx: CommandContext<State>, args: &str) -> DynFuture<'_, CommandResult> {
-        let args = args.to_string();
-
-        Box::pin(async move {
-            let (a, remaining) = A::into_argument(ctx.clone(), args).await?;
-            let (b, remaining) = B::into_argument(ctx.clone(), remaining).await?;
-            let (c, remaining) = C::into_argument(ctx.clone(), remaining).await?;
-            let (d, remaining) = D::into_argument(ctx.clone(), remaining).await?;
-            let (e, _remaining) = E::into_argument(ctx.clone(), remaining).await?;
-
-            (self)(ctx, a, b, c, d, e).await;
-
-            Ok(())
-        })
-    }
-}
-
-impl<State, Func, Fut, A, B, C, D, E, F, Res> CommandHandler<State, (A, B, C, D, E, F)> for Func
-where
-    Func: Fn(CommandContext<State>, A, B, C, D, E, F) -> Fut + Send + Sync + 'static,
-    Fut: Future<Output = Res> + Send,
-    State: StateBound,
-    A: IntoArgument<State>,
-    B: IntoArgument<State>,
-    C: IntoArgument<State>,
-    D: IntoArgument<State>,
-    E: IntoArgument<State>,
-    F: IntoArgument<State>,
-{
-    fn run(&self, ctx: CommandContext<State>, args: &str) -> DynFuture<'_, CommandResult> {
-        let args = args.to_string();
-
-        Box::pin(async move {
-            let (a, remaining) = A::into_argument(ctx.clone(), args).await?;
-            let (b, remaining) = B::into_argument(ctx.clone(), remaining).await?;
-            let (c, remaining) = C::into_argument(ctx.clone(), remaining).await?;
-            let (d, remaining) = D::into_argument(ctx.clone(), remaining).await?;
-            let (e, remaining) = E::into_argument(ctx.clone(), remaining).await?;
-            let (f, _remaining) = F::into_argument(ctx.clone(), remaining).await?;
-
-            (self)(ctx, a, b, c, d, e, f).await;
-
-            Ok(())
-        })
-    }
-}
-
-/// A wrapper for command handler functions to be able to implement [`CommandHandlerWithoutArgs`]
-/// for all command handlers independetnly of their `Args` type.
-struct CommandHandlerHolder<F, Args> {
-    handler: F,
-    _args: PhantomData<Args>,
-}
-
-impl<F, Args> CommandHandlerHolder<F, Args> {
-    fn new(handler: F) -> Self {
-        CommandHandlerHolder {
-            handler,
-            _args: PhantomData,
-        }
-    }
-}
-
-/// A trait for command handlers that can be run without a generic `Args` type.
-///
-/// This is used to be able to store command handlers in a vector without having to worry about
-/// their `Args` type, given such generic is just a dummy type used to avoid implementation
-/// collisions.
-pub trait CommandHandlerWithoutArgs<State>: Send + Sync
-where
-    State: StateBound,
-{
-    fn run(&self, ctx: CommandContext<State>, args: &str) -> DynFuture<'_, CommandResult>;
-}
-
-impl<State, F, Args> CommandHandlerWithoutArgs<State> for CommandHandlerHolder<F, Args>
-where
-    State: StateBound,
-    F: CommandHandler<State, Args>,
-    Args: Send + Sync + 'static,
-{
-    fn run(&self, ctx: CommandContext<State>, args: &str) -> DynFuture<'_, CommandResult> {
-        self.handler.run(ctx, args)
-    }
-}
-
-/// A group of commands, which can be used to organize commands into categories.
-#[derive(Clone)]
-pub struct CommandGroup<State>
-where
-    State: StateBound,
-{
-    /// The name of the group.
-    pub name: String,
-
-    /// The group's summary.
-    pub summary: Option<String>,
-
-    /// The group's description.
-    pub description: Option<String>,
-
-    /// Sub-commands and sub-groups of this group.
-    pub children: Vec<CommandNode<State>>,
-}
-
-impl<State> CommandGroup<State>
-where
-    State: StateBound,
-{
-    /// Creates a new command group builder with the given group name.
-    ///
-    /// Arguments:
-    /// * `name` - The name of the group.
-    ///
-    /// Returns:
-    /// [`CommandGroupBuilder`] - A new command group builder with the given name.
-    pub fn build(name: impl Into<String>) -> CommandGroupBuilder<State> {
-        CommandGroupBuilder::new(name)
-    }
-}
-
-/// A command group builder that allows setting optional fields.
-pub struct CommandGroupBuilder<State>
-where
-    State: StateBound,
-{
-    name: String,
-    summary: Option<String>,
-    description: Option<String>,
-    children: Vec<CommandNode<State>>,
-}
-
-impl<State> CommandGroupBuilder<State>
-where
-    State: StateBound,
-{
-    /// Creates a new command group builder with the given name.
-    ///
-    /// Arguments:
-    /// * `name` - The name of the group.
-    ///
-    /// Returns:
-    /// [`CommandGroupBuilder`] - A new command group builder with the given name.
-    fn new(name: impl Into<String>) -> Self {
-        CommandGroupBuilder {
-            name: name.into(),
-            summary: None,
-            description: None,
-            children: Vec::new(),
-        }
-    }
-
-    /// Sets the group's summary, which is ideally a short one-line description of the group.
-    ///
-    /// Arguments:
-    /// * `summary` - The group's summary.
-    ///
-    /// Returns:
-    /// [`CommandGroupBuilder`] - The command group builder with the set summary.
-    pub fn summary(mut self, summary: impl Into<String>) -> Self {
-        self.summary = Some(summary.into());
-        self
-    }
-
-    /// Sets the group's description, which is ideally a more detailed description of the group.
-    ///
-    /// Arguments:
-    /// * `description` - The group's description.
-    ///
-    /// Returns:
-    /// [`CommandGroupBuilder`] - The command group builder with the set description.
-    pub fn description(mut self, description: impl Into<String>) -> Self {
-        self.description = Some(description.into());
-        self
-    }
-
-    /// Adds a command as a child of this group.
-    ///
-    /// Arguments:
-    /// * `command` - The command to add as a child of this group.
-    ///
-    /// Returns:
-    /// [`CommandGroupBuilder`] - The command group builder with the added command.
-    pub fn command(mut self, command: CommandBuilder<State>) -> Self {
-        self.children.push(CommandNode::Command(command.build()));
-        self
-    }
-
-    /// Adds a subgroup as a child of this group.
-    ///
-    /// Arguments:
-    /// * `group` - The subgroup to add as a child of this group.
-    ///
-    /// Returns:
-    /// [`CommandGroupBuilder`] - The command group builder with the added subgroup.
-    pub fn nest(mut self, group: CommandGroupBuilder<State>) -> Self {
-        self.children.push(CommandNode::Group(group.build()));
-        self
-    }
-
-    /// Builds the command group, consuming the builder and returning a [`CommandGroup`] with the
-    /// set fields.
-    ///
-    /// Returns:
-    /// [`CommandGroup`] - A command group with the set fields from the builder.
-    pub(crate) fn build(self) -> CommandGroup<State> {
-        CommandGroup {
-            name: self.name,
-            summary: self.summary,
-            description: self.description,
-            children: self.children,
-        }
-    }
-}
+pub mod prefixed;
+pub mod slash;
 
 /// Either a command or a command group.
 #[derive(Clone)]
@@ -786,18 +177,161 @@ pub enum CommandNode<State>
 where
     State: StateBound,
 {
-    Command(Command<State>),
-    Group(CommandGroup<State>),
+    PrefixedCommand(PrefixedCommand<State>),
+    PrefixedCommandGroup(PrefixedCommandGroup<State>),
+    SlashCommand(SlashCommand<State>),
+    SlashCommandGroup(SlashCommandGroup<State>),
 }
 
-/// Flattens a [`CommandNode`] tree into a list of [`Command`]s.
+/// Converts all command types (slash, prefixed) and their builder types into [`CommandNode`]s.
+pub trait CommandIntoCommandNode<State>
+where
+    State: StateBound,
+{
+    /// Converts the current type into a [`CommandNode`].
+    ///
+    /// Returns:
+    /// [`CommandNode`] - The resulting command node.
+    fn into_command_node(self) -> CommandNode<State>;
+}
+
+impl<State> CommandIntoCommandNode<State> for PrefixedCommand<State>
+where
+    State: StateBound,
+{
+    fn into_command_node(self) -> CommandNode<State> {
+        CommandNode::PrefixedCommand(self)
+    }
+}
+
+impl<State> CommandIntoCommandNode<State> for PrefixedCommandBuilder<State>
+where
+    State: StateBound,
+{
+    fn into_command_node(self) -> CommandNode<State> {
+        CommandNode::PrefixedCommand(self.build())
+    }
+}
+
+impl<State> CommandIntoCommandNode<State> for SlashCommand<State>
+where
+    State: StateBound,
+{
+    fn into_command_node(self) -> CommandNode<State> {
+        CommandNode::SlashCommand(self)
+    }
+}
+
+impl<State> CommandIntoCommandNode<State> for SlashCommandBuilder<State>
+where
+    State: StateBound,
+{
+    fn into_command_node(self) -> CommandNode<State> {
+        CommandNode::SlashCommand(self.build())
+    }
+}
+
+/// A unified API to build commands.
+///
+/// This type's associated functions initialize specialized command types depending on what type is
+/// being initialized. This type does not represent a command directly.
+pub struct Command;
+
+impl Command {
+    /// Creates a new prefixed command builder with the given name and handler.
+    ///
+    /// Arguments:
+    /// * `name` - The command's name, used to invoke the command.
+    /// * `handler` - The command's handler, the function that executes when the command is run.
+    ///
+    /// Returns:
+    /// [`PrefixedCommandBuilder`] - A new command builder with the given name and handler.
+    pub fn prefixed<State, F, Args>(
+        name: impl Into<String>,
+        handler: F,
+    ) -> PrefixedCommandBuilder<State>
+    where
+        F: PrefixedCommandHandler<State, Args> + 'static,
+        Args: Send + Sync + 'static,
+        State: StateBound,
+    {
+        PrefixedCommandBuilder::new(name, handler)
+    }
+
+    /// Creates a new slash command builder with the given name and handler.
+    ///
+    /// Arguments:
+    /// * `name` - The command's name, used to invoke the command.
+    /// * `handler` - The command's handler, the function that executes when the command is run.
+    ///
+    /// Returns:
+    /// [`SlashCommandBuilder`] - A new slash command builder with the given name.
+    pub fn slash<State, F, Args>(name: impl Into<String>, handler: F) -> SlashCommandBuilder<State>
+    where
+        F: SlashCommandHandler<State, Args> + 'static,
+        State: StateBound,
+        Args: Send + Sync + 'static,
+    {
+        SlashCommandBuilder::new(name.into(), handler)
+    }
+}
+
+/// A unified API to build command groups.
+///
+/// This type's associated functions initialize specialized command group types depending on what
+/// type is being initialized. This type does not represent a command group directly.
+pub struct CommandGroup;
+
+impl CommandGroup {
+    /// Intializes a prefixed command group builder.
+    ///
+    /// Arguments:
+    /// * `name` - The command group's name.
+    ///
+    /// Returns:
+    /// [`PrefixedCommandGroupBuilder`] - A new prefixed command group builder.
+    pub fn prefixed<State>(name: impl Into<String>) -> PrefixedCommandGroupBuilder<State>
+    where
+        State: StateBound,
+    {
+        PrefixedCommandGroupBuilder::new(name)
+    }
+
+    /// Intializes a slash command group builder.
+    ///
+    /// Arguments:
+    /// * `name` - The command group's name.
+    ///
+    /// Returns:
+    /// [`SlashCommandGroupBuilder`] - A new slash command group builder.
+    pub fn slash<State>(name: impl Into<String>) -> SlashCommandGroupBuilder<State>
+    where
+        State: StateBound,
+    {
+        SlashCommandGroupBuilder::new(name)
+    }
+}
+
+/// Converts all command group types (slash, prefixed) and their builder types into a command node.
+pub trait ComamdGroupIntoCommandNode<State>
+where
+    State: StateBound,
+{
+    /// Converts the current type into a [`CommandNode`].
+    ///
+    /// Returns:
+    /// [`CommandNode`] - The resulting command node.
+    fn into_command_node(self) -> CommandNode<State>;
+}
+
+/// Flattens a [`CommandNode`] tree into a list of [`PrefixedCommand`]s.
 ///
 /// Arguments:
 /// * `nodes` - The nodes to flatten, which is a list of commands and command groups.
 ///
 /// Returns:
-/// [`Vec<Command>`] - A list of all the commands in the tree.
-pub fn flatten<State>(nodes: &[CommandNode<State>]) -> Vec<&Command<State>>
+/// [`Vec<PrefixedCommand>`] - A list of all the commands in the tree.
+pub fn flatten_prefixed<State>(nodes: &[CommandNode<State>]) -> Vec<&PrefixedCommand<State>>
 where
     State: StateBound,
 {
@@ -805,15 +339,44 @@ where
 
     for node in nodes {
         match node {
-            CommandNode::Command(command) => commands.push(command),
-            CommandNode::Group(group) => commands.extend(flatten(&group.children)),
+            CommandNode::PrefixedCommand(command) => commands.push(command),
+            CommandNode::PrefixedCommandGroup(group) => {
+                commands.extend(flatten_prefixed(&group.children))
+            }
+            _ => {}
         }
     }
 
     commands
 }
 
-/// Returns all the commands in a list of [`CommandNode`]s.
+/// Flattens a [`CommandNode`] tree into a list of [`SlashCommand`]s.
+///
+/// Arguments:
+/// * `nodes` - The nodes to flatten, which is a list of commands and command groups.
+///
+/// Returns:
+/// [`Vec<SlashCommand>`] - A list of all the commands in the tree.
+pub fn flatten_slash<State>(nodes: &[CommandNode<State>]) -> Vec<&SlashCommand<State>>
+where
+    State: StateBound,
+{
+    let mut commands = Vec::new();
+
+    for node in nodes {
+        match node {
+            CommandNode::SlashCommand(command) => commands.push(command),
+            CommandNode::PrefixedCommandGroup(group) => {
+                commands.extend(flatten_slash(&group.children))
+            }
+            _ => {}
+        }
+    }
+
+    commands
+}
+
+/// Returns all the prefixed commands in a list of [`CommandNode`]s.
 ///
 /// Sub-commands inside command groups are not returned.
 ///
@@ -821,16 +384,16 @@ where
 /// * `nodes` - The nodes to get the commands from, which is a list of commands and command groups.
 ///
 /// Returns:
-/// [`Vec<Command>`] - A list of all the commands in the list of nodes, excluding sub-commands in
-/// command groups.
-pub fn get_commands<State>(nodes: &[CommandNode<State>]) -> Vec<&Command<State>>
+/// [`Vec<SlashCommand>`] - A list of all the prefixed commands in the list of nodes, excluding
+/// sub-commands in command groups.
+pub fn get_prefixed_commands<State>(nodes: &[CommandNode<State>]) -> Vec<&PrefixedCommand<State>>
 where
     State: StateBound,
 {
     let mut commands = Vec::new();
 
     for node in nodes {
-        if let CommandNode::Command(command) = node {
+        if let CommandNode::PrefixedCommand(command) = node {
             commands.push(command);
         }
     }
@@ -838,7 +401,32 @@ where
     commands
 }
 
-/// Returns all the command groups in a list of [`CommandNode`]s.
+/// Returns all the slash commands in a list of [`CommandNode`]s.
+///
+/// Sub-commands inside command groups are not returned.
+///
+/// Arguments:
+/// * `nodes` - The nodes to get the commands from, which is a list of commands and command groups.
+///
+/// Returns:
+/// [`Vec<SlashCommand>`] - A list of all the prefixed commands in the list of nodes, excluding
+/// sub-commands in command groups.
+pub fn get_slash_commands<State>(nodes: &[CommandNode<State>]) -> Vec<&SlashCommand<State>>
+where
+    State: StateBound,
+{
+    let mut commands = Vec::new();
+
+    for node in nodes {
+        if let CommandNode::SlashCommand(command) = node {
+            commands.push(command);
+        }
+    }
+
+    commands
+}
+
+/// Returns all the prefixed command groups in a list of [`CommandNode`]s.
 ///
 /// Sub-groups inside command groups are not returned.
 ///
@@ -847,16 +435,42 @@ where
 ///   groups.
 ///
 /// Returns:
-/// [`Vec<CommandGroup>`] - A list of all the command groups in the list of nodes, excluding
-/// sub-groups in command groups.
-pub fn get_groups<State>(nodes: &[CommandNode<State>]) -> Vec<&CommandGroup<State>>
+/// [`Vec<PrefixedCommandGroup>`] - A list of all the command groups in the list of nodes,
+/// excluding sub-groups in command groups.
+pub fn get_prefixed_groups<State>(nodes: &[CommandNode<State>]) -> Vec<&PrefixedCommandGroup<State>>
 where
     State: StateBound,
 {
     let mut groups = Vec::new();
 
     for node in nodes {
-        if let CommandNode::Group(group) = node {
+        if let CommandNode::PrefixedCommandGroup(group) = node {
+            groups.push(group);
+        }
+    }
+
+    groups
+}
+
+/// Returns all the slash command groups in a list of [`CommandNode`]s.
+///
+/// Sub-groups inside command groups are not returned.
+///
+/// Arguments:
+/// * `nodes` - The nodes to get the command groups from, which is a list of commands and command
+///   groups.
+///
+/// Returns:
+/// [`Vec<SlashCommandGroup>`] - A list of all the command groups in the list of nodes,
+/// excluding sub-groups in command groups.
+pub fn get_slash_groups<State>(nodes: &[CommandNode<State>]) -> Vec<&SlashCommandGroup<State>>
+where
+    State: StateBound,
+{
+    let mut groups = Vec::new();
+
+    for node in nodes {
+        if let CommandNode::SlashCommandGroup(group) = node {
             groups.push(group);
         }
     }

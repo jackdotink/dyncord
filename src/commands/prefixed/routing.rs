@@ -1,16 +1,17 @@
 use twilight_model::gateway::payload::incoming::MessageCreate;
 
-use crate::commands::context::CommandContext;
-use crate::commands::prefixes::PrefixesContext;
-use crate::commands::{self, parsing};
+use crate::commands;
+use crate::commands::prefixed::context::PrefixedContext;
+use crate::commands::prefixed::parsing;
+use crate::commands::prefixed::prefixes::PrefixesContext;
 use crate::events::EventContext;
 use crate::state::StateBound;
 
 /// Handles the invokation of message commands.
-/// 
+///
 /// When a [`MessageCreate`] event is received, this function checks if the message starts with any
 /// of the bot's registered commands and invokes it.
-pub(crate) async fn route_message<State>(ctx: EventContext<State, MessageCreate>)
+pub(crate) async fn route_prefixed_command<State>(ctx: EventContext<State, MessageCreate>)
 where
     State: StateBound,
 {
@@ -29,9 +30,9 @@ where
                     let command_identifier = parts.command_name.to_string();
                     let command_args = parts.command_args.to_string();
 
-                    for command in commands::flatten(&ctx.handle.commands) {
+                    for command in commands::flatten_prefixed(&ctx.handle.commands) {
                         if command.identifiers().contains(&command_identifier) {
-                            let ctx = CommandContext {
+                            let ctx = PrefixedContext {
                                 event: ctx.event.clone(),
                                 state: ctx.state.clone(),
                                 handle: ctx.handle.clone(),

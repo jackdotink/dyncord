@@ -4,36 +4,36 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use dyncord::Bot;
 use dyncord::commands::Command;
-use dyncord::commands::context::CommandContext;
+use dyncord::commands::prefixed::context::PrefixedContext;
 use dyncord::events::{EventContext, MessageCreate, On};
 use twilight_gateway::Intents;
 
-    #[tokio::main]
-    async fn main() {
-        let bot = Bot::new(CounterState::default())
-            .with_prefix("!")
-            .intents(Intents::GUILD_MESSAGES)
-            .intents(Intents::MESSAGE_CONTENT)
-            .command(Command::build("count", count_command))
-            .command(Command::build("reset", reset_command))
-            .on_event(On::message_create(on_message));
+#[tokio::main]
+async fn main() {
+    let bot = Bot::new(CounterState::default())
+        .with_prefix("!")
+        .intents(Intents::GUILD_MESSAGES)
+        .intents(Intents::MESSAGE_CONTENT)
+        .command(Command::prefixed("count", count_command))
+        .command(Command::prefixed("reset", reset_command))
+        .on_event(On::message_create(on_message));
 
-        bot.run(env::var("TOKEN").unwrap()).await;
-    }
+    bot.run(env::var("TOKEN").unwrap()).await.unwrap();
+}
 
-    async fn on_message(ctx: EventContext<CounterState, MessageCreate>) {
-        ctx.state.counter.fetch_add(1, Ordering::SeqCst);
-    }
+async fn on_message(ctx: EventContext<CounterState, MessageCreate>) {
+    ctx.state.counter.fetch_add(1, Ordering::SeqCst);
+}
 
-    async fn count_command(ctx: CommandContext<CounterState>) {
-        let count = ctx.state.counter.load(Ordering::SeqCst);
+async fn count_command(ctx: PrefixedContext<CounterState>) {
+    let count = ctx.state.counter.load(Ordering::SeqCst);
 
-        ctx.reply(format!("Message count: {}", count))
-            .await
-            .unwrap();
-    }
+    ctx.reply(format!("Message count: {}", count))
+        .await
+        .unwrap();
+}
 
-async fn reset_command(ctx: CommandContext<CounterState>) {
+async fn reset_command(ctx: PrefixedContext<CounterState>) {
     ctx.state.counter.store(0, Ordering::SeqCst);
 
     ctx.reply("Message count has been reset!").await.unwrap();

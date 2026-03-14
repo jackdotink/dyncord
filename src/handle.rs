@@ -25,7 +25,7 @@ use twilight_model::id::marker::ChannelMarker;
 
 use crate::aliases::DiscordClient;
 use crate::commands::CommandNode;
-use crate::commands::prefixes::Prefixes;
+use crate::commands::prefixed::prefixes::Prefixes;
 use crate::state::StateBound;
 use crate::wrappers::actions::message_create::CreateMessage;
 

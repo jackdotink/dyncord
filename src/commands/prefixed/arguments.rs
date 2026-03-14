@@ -3,7 +3,7 @@ use std::fmt::Display;
 use thiserror::Error;
 
 use crate::DynFuture;
-use crate::commands::context::CommandContext;
+use crate::commands::prefixed::context::PrefixedContext;
 use crate::state::StateBound;
 
 /// An error occurred while parsing an argument for a command.
@@ -63,7 +63,7 @@ where
     ///   parsing was successful.
     /// * `Err(ParsingError)` - A parsing error if parsing the argument failed.
     fn into_argument(
-        ctx: CommandContext<State>,
+        ctx: PrefixedContext<State>,
         args: String,
     ) -> DynFuture<'static, Result<(Self, String), ParsingError>>;
 }
@@ -73,7 +73,7 @@ where
     State: StateBound,
 {
     fn into_argument(
-        _ctx: CommandContext<State>,
+        _ctx: PrefixedContext<State>,
         args: String,
     ) -> DynFuture<'static, Result<(Self, String), ParsingError>> {
         Box::pin(async move {
@@ -278,26 +278,26 @@ fn parse_space(chars: &[char], i: &mut usize) -> Token {
 /// [`Token::InSingleQuote`] tokens represent single-quote-quoted strings. For example,
 /// `'hello world'`. It supports escaping such quotes, and escaping backslashes not to escape
 /// single quotes.
-/// 
+///
 /// If the single-quote-quoted string being parsed ends up not having a closing quote, this'll
 /// fall back to parsing the token as a [`Token::String`] using [`parse_string`].
-/// 
+///
 /// This function will advance the cursor as chars are being parsed into the token, and the cursor
 /// will be `last_token_index + 1` when the function returns.
 ///
 /// Note: The cursor MUST be the starting index of the single-quote-quoted token to parse when this
 ///       function is called. This means `i` should be the index of a `'\''` char in `chars`. Not
 ///       guaranteeing so before calling this function to panic.
-/// 
+///
 /// Arguments:
 /// * `chars` - A slice pointing to all chars being parsed.
 /// * `i` - A mutable reference to the parsing cursor.
-/// 
+///
 /// Returns:
 /// * [`Token::InSingleQuote`] - If the token was successfully parsed as a single-quote-quoted
 ///   string.
 /// * [`Token::String`] - If the token didn't have a closing single quote. E.g. `'hello`.
-/// 
+///
 /// Panics:
 /// * If `i` is not the index of a `'\''` char in `chars` when the function is called.
 fn parse_single_quote(chars: &[char], i: &mut usize) -> Token {
@@ -358,26 +358,26 @@ fn parse_single_quote(chars: &[char], i: &mut usize) -> Token {
 /// [`Token::InDoubleQuote`] tokens represent double-quote-quoted strings. For example,
 /// `"hello world"`. It supports escaping such quotes, and escaping backslashes not to escape
 /// double quotes.
-/// 
+///
 /// If the double-quote-quoted string being parsed ends up not having a closing quote, this'll
 /// fall back to parsing the token as a [`Token::String`] using [`parse_string`].
-/// 
+///
 /// This function will advance the cursor as chars are being parsed into the token, and the cursor
 /// will be `last_token_index + 1` when the function returns.
 ///
 /// Note: The cursor MUST be the starting index of the double-quote-quoted token to parse when this
 ///       function is called. This means `i` should be the index of a `'"'` char in `chars`. Not
 ///       guaranteeing so before calling this function to panic.
-/// 
+///
 /// Arguments:
 /// * `chars` - A slice pointing to all chars being parsed.
 /// * `i` - A mutable reference to the parsing cursor.
-/// 
+///
 /// Returns:
 /// * [`Token::InDoubleQuote`] - If the token was successfully parsed as a double-quote-quoted
 ///   string.
 /// * [`Token::String`] - If the token didn't have a closing single quote. E.g. `"hello`.
-/// 
+///
 /// Panics:
 /// * If `i` is not the index of a `'"'` char in `chars` when the function is called.
 fn parse_double_quote(chars: &[char], i: &mut usize) -> Token {
@@ -452,7 +452,7 @@ where
     State: StateBound,
 {
     fn into_argument(
-        _ctx: CommandContext<State>,
+        _ctx: PrefixedContext<State>,
         args: String,
     ) -> DynFuture<'static, Result<(Self, String), ParsingError>> {
         Box::pin(async move { Ok((GreedyString(args.trim_start().to_string()), "".to_string())) })
@@ -464,7 +464,7 @@ where
     State: StateBound,
 {
     fn into_argument(
-        ctx: CommandContext<State>,
+        ctx: PrefixedContext<State>,
         args: String,
     ) -> DynFuture<'static, Result<(Self, String), ParsingError>> {
         Box::pin(async move {
@@ -484,7 +484,7 @@ where
     State: StateBound,
 {
     fn into_argument(
-        ctx: CommandContext<State>,
+        ctx: PrefixedContext<State>,
         args: String,
     ) -> DynFuture<'static, Result<(Self, String), ParsingError>> {
         Box::pin(async move {
@@ -502,7 +502,7 @@ where
     State: StateBound,
 {
     fn into_argument(
-        ctx: CommandContext<State>,
+        ctx: PrefixedContext<State>,
         args: String,
     ) -> DynFuture<'static, Result<(Self, String), ParsingError>> {
         Box::pin(async move {
@@ -520,7 +520,7 @@ where
     State: StateBound,
 {
     fn into_argument(
-        ctx: CommandContext<State>,
+        ctx: PrefixedContext<State>,
         args: String,
     ) -> DynFuture<'static, Result<(Self, String), ParsingError>> {
         Box::pin(async move {
@@ -538,7 +538,7 @@ where
     State: StateBound,
 {
     fn into_argument(
-        ctx: CommandContext<State>,
+        ctx: PrefixedContext<State>,
         args: String,
     ) -> DynFuture<'static, Result<(Self, String), ParsingError>> {
         Box::pin(async move {
@@ -556,7 +556,7 @@ where
     State: StateBound,
 {
     fn into_argument(
-        ctx: CommandContext<State>,
+        ctx: PrefixedContext<State>,
         args: String,
     ) -> DynFuture<'static, Result<(Self, String), ParsingError>> {
         Box::pin(async move {
@@ -574,7 +574,7 @@ where
     State: StateBound,
 {
     fn into_argument(
-        ctx: CommandContext<State>,
+        ctx: PrefixedContext<State>,
         args: String,
     ) -> DynFuture<'static, Result<(Self, String), ParsingError>> {
         Box::pin(async move {
@@ -592,7 +592,7 @@ where
     State: StateBound,
 {
     fn into_argument(
-        ctx: CommandContext<State>,
+        ctx: PrefixedContext<State>,
         args: String,
     ) -> DynFuture<'static, Result<(Self, String), ParsingError>> {
         Box::pin(async move {
@@ -610,7 +610,7 @@ where
     State: StateBound,
 {
     fn into_argument(
-        ctx: CommandContext<State>,
+        ctx: PrefixedContext<State>,
         args: String,
     ) -> DynFuture<'static, Result<(Self, String), ParsingError>> {
         Box::pin(async move {
@@ -628,7 +628,7 @@ where
     State: StateBound,
 {
     fn into_argument(
-        ctx: CommandContext<State>,
+        ctx: PrefixedContext<State>,
         args: String,
     ) -> DynFuture<'static, Result<(Self, String), ParsingError>> {
         Box::pin(async move {
@@ -646,7 +646,7 @@ where
     State: StateBound,
 {
     fn into_argument(
-        ctx: CommandContext<State>,
+        ctx: PrefixedContext<State>,
         args: String,
     ) -> DynFuture<'static, Result<(Self, String), ParsingError>> {
         Box::pin(async move {
@@ -664,7 +664,7 @@ where
     State: StateBound,
 {
     fn into_argument(
-        ctx: CommandContext<State>,
+        ctx: PrefixedContext<State>,
         args: String,
     ) -> DynFuture<'static, Result<(Self, String), ParsingError>> {
         Box::pin(async move {
@@ -682,7 +682,7 @@ where
     State: StateBound,
 {
     fn into_argument(
-        ctx: CommandContext<State>,
+        ctx: PrefixedContext<State>,
         args: String,
     ) -> DynFuture<'static, Result<(Self, String), ParsingError>> {
         Box::pin(async move {
@@ -700,7 +700,7 @@ where
     State: StateBound,
 {
     fn into_argument(
-        ctx: CommandContext<State>,
+        ctx: PrefixedContext<State>,
         args: String,
     ) -> DynFuture<'static, Result<(Self, String), ParsingError>> {
         Box::pin(async move {
@@ -718,7 +718,7 @@ where
     State: StateBound,
 {
     fn into_argument(
-        ctx: CommandContext<State>,
+        ctx: PrefixedContext<State>,
         args: String,
     ) -> DynFuture<'static, Result<(Self, String), ParsingError>> {
         Box::pin(async move {
@@ -736,7 +736,7 @@ where
     State: StateBound,
 {
     fn into_argument(
-        ctx: CommandContext<State>,
+        ctx: PrefixedContext<State>,
         args: String,
     ) -> DynFuture<'static, Result<(Self, String), ParsingError>> {
         Box::pin(async move {
@@ -756,7 +756,7 @@ where
     T: IntoArgument<State>,
 {
     fn into_argument(
-        ctx: CommandContext<State>,
+        ctx: PrefixedContext<State>,
         args: String,
     ) -> DynFuture<'static, Result<(Self, String), ParsingError>> {
         Box::pin(async move {

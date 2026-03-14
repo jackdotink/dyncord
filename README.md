@@ -18,7 +18,7 @@ A minimal bot using Dyncord looks like this:
 ```rust
 use dyncord::{Bot, Intents};
 use dyncord::commands::Command;
-use dyncord::commands::context::CommandContext;
+use dyncord::commands::prefixed::context::PrefixedContext;
 
 #[tokio::main]
 async fn main() {
@@ -26,12 +26,12 @@ async fn main() {
         .intents(Intents::GUILD_MESSAGES)
         .intents(Intents::MESSAGE_CONTENT)
         .with_prefix(">")
-        .command(Command::build("hello", hello));
+        .command(Command::prefixed("hello", hello));
 
     bot.run("your-token").await.unwrap();
 }
 
-async fn hello(ctx: CommandContext) {
+async fn hello(ctx: PrefixedContext) {
     ctx.send("Hello, world!").await.unwrap();
 }
 ```
@@ -42,7 +42,7 @@ Then on Discord, just send `>hello` in a channel the bot has access to and it wi
 Taking arguments is simple. Just add them to the handler function:
 
 ```rust
-async fn hello(ctx: CommandContext, name: String) {
+async fn hello(ctx: PrefixedContext, name: String) {
     ctx.send(format!("Hello, {name}!")).await.unwrap();
 }
 ```
@@ -85,21 +85,21 @@ Check Discord and you'll see your bot has come online. Well done! Now, let's add
 our bot.
 
 Command handlers are simple to define. The simplest form of a command handler is an async
-function that takes a [`CommandContext`](commands::context::CommandContext) as its only argument.
-For example:
+function that takes a [`PrefixedContext`](commands::prefixed::context::PrefixedContext) as its only
+argument. For example:
 
 ```rust
-async fn ping(ctx: Context) {
+async fn ping(ctx: PrefixedContext) {
     ctx.send("pong").await.unwrap();
 }
 ```
 
-To add that command to our bot, we just need to create a
-[`Command`](commands::Command) instance and pass it to the bot's [`command`](Bot::command)
+To add that command to our bot, we just need to create a command through the
+[`Command`](commands::Command) builder and pass it to the bot's [`command`](Bot::command)
 method:
 
 ```rust
-let bot = Bot::new(()).with_prefix(".").command(Command::build("ping", ping));
+let bot = Bot::new(()).with_prefix(".").command(Command::prefixed("ping", ping));
 ```
 
 `"ping"` is the command's name, used to invoke the command. So in this case, sending `.ping` in
@@ -116,7 +116,7 @@ let bot = Bot::new(())
     .intents(Intents::GUILD_MESSAGES)
     .intents(Intents::MESSAGE_CONTENT)
     .with_prefix(".")
-    .command(Command::build("ping", ping));
+    .command(Command::prefixed("ping", ping));
 ```
 
 Now, when you send `.ping` in a channel the bot has access to, it will reply with `pong`. Good!
@@ -129,7 +129,7 @@ For example, if we want to take a user as an argument, we can just add a `User` 
 handler function:
 
 ```rust
-async fn hello(ctx: CommandContext, name: String) {
+async fn hello(ctx: PrefixedContext, name: String) {
     ctx.send(format!("Hello, {name}!")).await.unwrap();
 }
 ```

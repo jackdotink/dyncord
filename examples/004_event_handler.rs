@@ -10,7 +10,7 @@ async fn main() {
         .intents(Intents::GUILD_MESSAGES)
         .on_event(On::message_create(on_message));
 
-    bot.run(env::var("TOKEN").unwrap()).await;
+    bot.run(env::var("TOKEN").unwrap()).await.unwrap();
 }
 
 async fn on_message(ctx: EventContext<(), MessageCreate>) {

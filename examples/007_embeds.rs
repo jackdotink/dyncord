@@ -1,9 +1,9 @@
 use std::env;
 
-use dyncord::wrappers::types::embeds::{Embed, EmbedField};
 use dyncord::commands::Command;
-use dyncord::commands::context::CommandContext;
+use dyncord::commands::prefixed::context::PrefixedContext;
 use dyncord::events::{EventContext, On, Ready};
+use dyncord::wrappers::types::embeds::{Embed, EmbedField};
 use dyncord::{Bot, Intents};
 
 #[tokio::main]
@@ -12,10 +12,10 @@ async fn main() {
         .with_prefix(".")
         .intents(Intents::GUILD_MESSAGES)
         .intents(Intents::MESSAGE_CONTENT)
-        .command(Command::build("hello", hello).aliases("hi"))
+        .command(Command::prefixed("hello", hello).aliases("hi"))
         .on_event(On::ready(on_ready));
 
-    bot.run(env::var("TOKEN").unwrap()).await;
+    bot.run(env::var("TOKEN").unwrap()).await.unwrap();
 }
 
 async fn on_ready(ctx: EventContext<(), Ready>) {
@@ -25,7 +25,7 @@ async fn on_ready(ctx: EventContext<(), Ready>) {
     );
 }
 
-async fn hello(ctx: CommandContext) {
+async fn hello(ctx: PrefixedContext) {
     ctx.send("")
         .embed(
             Embed::build()

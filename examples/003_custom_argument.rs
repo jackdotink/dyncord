@@ -2,8 +2,8 @@ use std::env;
 
 use dyncord::Bot;
 use dyncord::commands::Command;
-use dyncord::commands::arguments::{IntoArgument, ParsingError};
-use dyncord::commands::context::CommandContext;
+use dyncord::commands::prefixed::arguments::{IntoArgument, ParsingError};
+use dyncord::commands::prefixed::context::PrefixedContext;
 use twilight_gateway::Intents;
 
 #[tokio::main]
@@ -12,12 +12,12 @@ async fn main() {
         .with_prefix(".")
         .intents(Intents::GUILD_MESSAGES)
         .intents(Intents::MESSAGE_CONTENT)
-        .command(Command::build("hello", hello));
+        .command(Command::prefixed("hello", hello));
 
-    bot.run(env::var("TOKEN").unwrap()).await;
+    bot.run(env::var("TOKEN").unwrap()).await.unwrap();
 }
 
-async fn hello(ctx: CommandContext, name: Name) {
+async fn hello(ctx: PrefixedContext, name: Name) {
     ctx.send(format!("Hello, {}!", name.pretty()))
         .await
         .unwrap();
@@ -41,7 +41,7 @@ impl Name {
 
 impl IntoArgument<()> for Name {
     fn into_argument(
-        _ctx: CommandContext<()>,
+        _ctx: PrefixedContext<()>,
         args: String,
     ) -> dyncord::DynFuture<'static, Result<(Self, String), ParsingError>> {
         Box::pin(async move {

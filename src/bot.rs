@@ -1,12 +1,15 @@
 use std::env::consts::OS;
 use std::sync::Arc;
 
+use thiserror::Error;
 use twilight_gateway::{ConfigBuilder, EventTypeFlags, Intents, Shard, ShardId, StreamExt};
 use twilight_http::Client;
 use twilight_model::gateway::payload::outgoing::identify::IdentifyProperties;
 
-use crate::commands::prefixes::Prefixes;
-use crate::commands::{self, CommandBuilder, CommandGroupBuilder, CommandNode};
+use crate::commands::prefixed::prefixes::Prefixes;
+use crate::commands::prefixed::{self, PrefixedCommandGroupBuilder};
+use crate::commands::slash::InvalidCommandError;
+use crate::commands::{self, CommandIntoCommandNode, CommandNode, slash};
 use crate::events::{On, OnEvent};
 use crate::handle::Handle;
 use crate::state::StateBound;
@@ -67,8 +70,8 @@ where
     ///
     /// Returns:
     /// [`Bot`] - The bot instance with the added command.
-    pub fn command(mut self, command: CommandBuilder<State>) -> Self {
-        self.commands.push(CommandNode::Command(command.build()));
+    pub fn command(mut self, command: impl CommandIntoCommandNode<State>) -> Self {
+        self.commands.push(command.into_command_node());
         self
     }
 
@@ -90,17 +93,18 @@ where
     ///
     /// Returns:
     /// [`Bot`] - The bot instance with the added command group.
-    pub fn nest(mut self, group: CommandGroupBuilder<State>) -> Self {
-        self.commands.push(CommandNode::Group(group.build()));
+    pub fn nest(mut self, group: PrefixedCommandGroupBuilder<State>) -> Self {
+        self.commands
+            .push(CommandNode::PrefixedCommandGroup(group.build()));
         self
     }
 
     /// Adds an event handler to the bot's event handlers list.
-    /// 
+    ///
     /// For example, to add a handler for the `MessageCreate` event, you can do:
     /// ```
     /// Bot::new(()).on_event(On::message_create(on_message));
-    /// 
+    ///
     /// async fn on_message(ctx: EventContext<State, MessageCreate>) {
     ///     // Handle the message create event.
     /// }
@@ -182,12 +186,11 @@ where
     /// Arguments:
     /// * `token` - The token used to authenticate the bot with the Discord API.
     ///
-    /// Panics:
-    /// * If you set commands but didn't set prefixes. Message commands require prefixes to work,
-    ///   so if you set commands without setting prefixes, the bot will panic to prevent you from
-    ///   running a bot that won't respond to any commands. To fix this, use [`Bot::with_prefix()`]
-    ///   to set prefixes for your bot before calling [`Bot::run()`].
-    pub async fn run(mut self, token: impl Into<String>) {
+    /// Returns:
+    /// * `Ok(())` - If no errors were detected during execution, though if it stopped without you
+    ///   wanting it to, that may also mean an error occurred.
+    /// * `Err(RunningError)` - An error occurred while running or attempting to run the bot.
+    pub async fn run(mut self, token: impl Into<String>) -> Result<(), RunningError> {
         let token = token.into();
         let handle = self.handle(token.clone());
 
@@ -198,7 +201,30 @@ where
         let mut gateway = Shard::with_config(self.shard, config);
 
         if !self.commands.is_empty() {
-            self = self.on_event(On::message_create(commands::event::route_message));
+            let mut has_slash_commands = false;
+            let mut has_prefixed_commands = false;
+
+            if !commands::flatten_slash(&self.commands).is_empty() {
+                has_slash_commands = true;
+            }
+
+            if !commands::flatten_prefixed(&self.commands).is_empty() {
+                has_prefixed_commands = true;
+            }
+
+            if has_prefixed_commands {
+                self = self.on_event(On::message_create(
+                    prefixed::routing::route_prefixed_command,
+                ));
+            }
+
+            if has_slash_commands {
+                slash::validate_commands(&commands::flatten_slash(&self.commands))
+                    .map_err(RunningError::InvalidSlashCommands)?;
+
+                self = self.on_event(On::ready(slash::registration::register));
+                self = self.on_event(On::interaction_create(slash::routing::route_slash_command));
+            }
         }
 
         while let Some(Ok(event)) = gateway.next_event(EventTypeFlags::all()).await {
@@ -210,5 +236,14 @@ where
                 }
             }
         }
+
+        Ok(())
     }
+}
+
+/// Errors that may occur while running, or attempting to run, a [`Bot`].
+#[derive(Debug, Error)]
+pub enum RunningError {
+    #[error("One or more slash commands are invalid. {0:?}")]
+    InvalidSlashCommands(Vec<InvalidCommandError>),
 }
