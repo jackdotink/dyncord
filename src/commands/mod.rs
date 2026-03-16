@@ -114,12 +114,12 @@
 //! command than just the argument name in the handler. If dyncord were to send the command as-is,
 //! Discord would fail to register it because it would be lacking metadata, and therefore dyncord
 //! fails early.
-//! 
+//!
 //! Lets fix our error by passing metadata about our `name` argument to our [`Command`] builder.
 //! Argument (options, as Discord calls them) metadata is defined through
 //! [`Argument`](slash::arguments::Argument). In this case, we want to create a string argument so
 //! we'll use [`Argument::string()`](slash::arguments::Argument::string).
-//! 
+//!
 //! ```
 //! let bot = Bot::new(()).command(
 //!     Command::slash("hello", handle_hello)
@@ -158,6 +158,7 @@
 //! It has all the details you'll need to be able to create slash commands more in detail. For now,
 //! happy coding!
 
+use crate::commands::errors::CommandError;
 use crate::commands::prefixed::{
     PrefixedCommand, PrefixedCommandBuilder, PrefixedCommandGroup, PrefixedCommandGroupBuilder,
     PrefixedCommandHandler,
@@ -168,6 +169,7 @@ use crate::commands::slash::{
 };
 use crate::state::StateBound;
 
+pub mod errors;
 pub mod prefixed;
 pub mod slash;
 
@@ -477,3 +479,6 @@ where
 
     groups
 }
+
+/// The result of running a command.
+pub type CommandResult = Result<(), CommandError>;

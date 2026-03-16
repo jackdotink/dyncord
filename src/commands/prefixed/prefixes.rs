@@ -10,6 +10,7 @@ use crate::utils::pinbox;
 ///
 /// It contains the bot's state and the message event that triggered the execution of this prefix
 /// getter.
+#[derive(Clone)]
 pub struct PrefixesContext<State = ()>
 where
     State: StateBound,

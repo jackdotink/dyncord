@@ -153,41 +153,41 @@
 //!     }
 //! }
 //! ```
-//! 
+//!
 //! # Command Context
-//! 
+//!
 //! The command context is a struct that contains information about the context in which the
 //! command is being executed. This includes things like the event that triggered the command, the
 //! user who used it, channel, guild, your bot’s state, and more. It also provides some utility
 //! functions to interact with the Discord API, such as responding with a message and deferring the
 //! command's response.
-//! 
+//!
 //! The [`SlashContext<State>`] is the required first argument of all slash command handlers. It
 //! takes a generic `State` type which is the same as the one used in your bot, or `()` by default
 //! when you don’t need any state.
-//! 
+//!
 //! ## Responding to Command Calls
-//! 
+//!
 //! Without responding to a slash command's calls, Discord will display an error message to the
 //! user, even if no error actually occurred.
-//! 
+//!
 //! To respond to a command call, there's currently two methods:
-//! 
+//!
 //! - [`SlashContext::respond`] - Respond with a message.
 //! - [`SlashContext::defer`] - Display a loading message while you do some longer work. Call
 //!   [`SlashContext::respond`] once you're done with such work.
-//! 
+//!
 //! For example,
-//! 
+//!
 //! ```
 //! async fn handle_api_call(ctx: SlashCommand) -> Result<(), TwilightError> {
 //!     ctx.defer().await?;
-//! 
+//!
 //!     match library::get_message().await {
 //!         Ok(message) => ctx.respond(message).await?,
 //!         Err(error) => ctx.respond(format!("An error occurred! {error:?}")).await?,
 //!     };
-//! 
+//!
 //!     Ok(())
 //! }
 //! ```
@@ -206,9 +206,10 @@ use twilight_model::application::command::{Command, CommandType};
 use twilight_model::application::interaction::application_command::CommandDataOption;
 use twilight_model::id::Id;
 
-use crate::commands::slash::arguments::{ArgumentError, ArgumentMeta, ArgumentType, IntoArgument};
+use crate::commands::errors::ArgumentError;
+use crate::commands::slash::arguments::{ArgumentMeta, ArgumentType, IntoArgument};
 use crate::commands::slash::context::SlashContext;
-use crate::commands::{CommandGroupIntoCommandNode, CommandNode};
+use crate::commands::{CommandGroupIntoCommandNode, CommandNode, CommandResult};
 use crate::state::StateBound;
 use crate::utils::DynFuture;
 
@@ -293,10 +294,10 @@ where
     }
 
     /// Sets the default description of the command.
-    /// 
+    ///
     /// Arguments:
     /// * `description` - The command's default description.
-    /// 
+    ///
     /// Returns:
     /// [`SlashCommandBuilder`] - Self with the description set.
     pub fn description(mut self, description: impl Into<String>) -> Self {
@@ -305,30 +306,30 @@ where
     }
 
     /// Adds an argument's metadata of the command.
-    /// 
+    ///
     /// This function must be called on the builder in the same order the arguments are defined in
     /// the handler function. For example:
-    /// 
+    ///
     /// ```
     /// async fn handle(ctx: SlashContext, name: String, age: i32) -> {}
-    /// 
+    ///
     /// // Correct way, arguments follow the same order as in `handle`.
     /// let command = Command::slash("command", handle)
     ///     .argument(Argument::string("name"))
     ///     .argument(Argument::number("age"));
-    /// 
+    ///
     /// // Incorrect way, arguments are not in the same order as in `handle`.
     /// let command = Command::slash("command", handle)
     ///     .argument(Argument::number("age"))
     ///     .argument(Argument::string("name"));
     /// ```
-    /// 
+    ///
     /// Failing to call this function in order will cause either the bot not to run or to run with
     /// arguments whose metadata is interchanged, misguiding the user.
-    /// 
+    ///
     /// Arguments:
     /// * `argument` - The argument's metadata.
-    /// 
+    ///
     /// Returns:
     /// [`SlashCommandBuilder`] - Self with the argument metadata set.
     pub fn argument(mut self, argument: impl Into<ArgumentMeta>) -> Self {
@@ -346,17 +347,6 @@ where
             arguments: self.arguments,
         }
     }
-}
-
-pub type CommandResult = Result<(), SlashCommandError>;
-
-/// An error occurred while executing, or attempting to execute, a slash command.
-#[derive(Debug, Error)]
-pub enum SlashCommandError {
-    #[error(
-        "The arguments received from Discord could not be parsed into the handler's arguments: {0}"
-    )]
-    InvalidArgument(#[from] ArgumentError),
 }
 
 /// Trait implemented by slash command handlers.
@@ -405,20 +395,20 @@ where
 }
 
 /// Parses an argument into the argument type required by the slash command handler.
-/// 
+///
 /// Arguments:
 /// * `ctx` - The slash command context.
 /// * `options` - All the options received from Discord for this command call.
 /// * `index` - The index of the argument in `ctx.command.arguments` being parsed.
-/// 
+///
 /// Returns:
-/// * `Ok(T)` - When the argument was correctly parsed.
-/// * `Err(SlashCommandError::InvalidArgument)` - When the argument failed to parse.
+/// * `Ok(T)` - When the argument is correctly parsed.
+/// * `Err(ArgumentError)` - When the argument fails to parse.
 async fn parse_arg<T, State>(
     ctx: SlashContext<State>,
     options: &[CommandDataOption],
     index: usize,
-) -> Result<T, SlashCommandError>
+) -> Result<T, ArgumentError>
 where
     T: IntoArgument<State>,
     State: StateBound,
@@ -430,7 +420,7 @@ where
         .ok_or(ArgumentError::MissingMeta)?;
     let option = options.iter().find(|i| i.name == *argument.name());
 
-    Ok(T::into_argument_primitive(ctx, option.cloned()).await?)
+    T::into_argument_primitive(ctx, option.cloned()).await
 }
 
 impl<State, Func, Fut, Res, A> SlashCommandHandler<State, (A,)> for Func
@@ -648,16 +638,16 @@ where
     State: StateBound,
 {
     /// Proxies to [`SlashCommandHandler::run`].
-    /// 
+    ///
     /// Arguments:
     /// * `ctx` - The slash command context.
-    /// 
+    ///
     /// Returns:
     /// [`CommandResult`] - The result of running, or attempting to run, the command handler.
     fn run(&self, ctx: SlashContext<State>) -> DynFuture<'_, CommandResult>;
 
     /// A vector of argument types taken by this handler.
-    /// 
+    ///
     /// Return:
     /// [`Vec<ArgumentType>`] - The argument types taken by this handler.
     fn argument_types(&self) -> Vec<ArgumentType>;
@@ -722,10 +712,10 @@ where
     }
 
     /// Adds a command to the group.
-    /// 
+    ///
     /// Arguments:
     /// * `command` - The command to add to the command group.
-    /// 
+    ///
     /// Returns:
     /// [`SlashCommandGroupBuilder`] - The current builder, with the command set.
     pub fn command(mut self, command: impl Into<SlashCommand<State>>) -> Self {
@@ -735,10 +725,10 @@ where
     }
 
     /// Nests a group into this group.
-    /// 
+    ///
     /// Arguments:
     /// * `group` - The group to nest.
-    /// 
+    ///
     /// Returns:
     /// [`SlashCommandGroupBuilder`] - The current builder with the nested group.
     pub fn nest(mut self, group: impl Into<SlashCommandGroup<State>>) -> Self {
@@ -809,10 +799,10 @@ pub enum InvalidCommandError {
 }
 
 /// Validates a bot's slash commands and its arguments.
-/// 
+///
 /// Arguments:
 /// * `commands` - The slash commands the group has configured.
-/// 
+///
 /// Returns:
 /// * `Ok(())` - If all commands are valid.
 /// * `Err(Vec<InvalidCommandError>)` - A list of errors found while validating the commands.

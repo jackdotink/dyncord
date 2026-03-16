@@ -206,14 +206,16 @@ pub mod parsing;
 pub mod prefixes;
 pub(crate) mod routing;
 
+use std::error::Error;
 use std::future::Future;
 use std::marker::PhantomData;
 use std::sync::Arc;
 
+use crate::commands::errors::{ArgumentError, CommandError};
 use crate::commands::prefixed::arguments::IntoArgument;
 use crate::commands::prefixed::context::PrefixedContext;
-use crate::commands::prefixed::errors::CommandError;
-use crate::commands::{CommandGroupIntoCommandNode, CommandNode};
+use crate::commands::{CommandGroupIntoCommandNode, CommandNode, CommandResult};
+use crate::errors::{ErrorHandler, ErrorHandlerWithoutType, ErrorHandlerWrapper};
 use crate::state::StateBound;
 use crate::utils::DynFuture;
 
@@ -279,6 +281,9 @@ where
 
     /// The command's handler, the function that executes when the command is run.
     pub(crate) handler: Arc<dyn PrefixedCommandHandlerWithoutArgs<State>>,
+
+    /// The command-specific error handlers.
+    pub(crate) on_errors: Vec<Arc<dyn ErrorHandlerWithoutType<State>>>,
 }
 
 impl<State> PrefixedCommand<State>
@@ -325,13 +330,19 @@ where
 
     /// Runs the command handler.
     ///
+    /// This function does not panic because all futures internally are run via [`tokio::spawn`].
+    ///
     /// Arguments:
     /// * `ctx` - The context of the command, which contains information about the message,
     ///   channel, guild, etc.
     /// * `args` - The raw arguments passed to the command, which can be parsed into the command's
     ///   arguments.
-    pub(crate) async fn run(&self, ctx: PrefixedContext<State>, args: &str) {
-        let _ = self.handler.run(ctx, args).await;
+    ///
+    /// Returns:
+    /// [`Result<(), CommandError>`] - Nothing, or an error if an error was raised when running the
+    /// command.
+    pub(crate) async fn run(&self, ctx: PrefixedContext<State>, args: &str) -> CommandResult {
+        self.handler.run(ctx, args).await
     }
 }
 
@@ -346,6 +357,7 @@ where
     summary: Option<String>,
     description: Option<String>,
     handler: Arc<dyn PrefixedCommandHandlerWithoutArgs<State>>,
+    on_errors: Vec<Arc<dyn ErrorHandlerWithoutType<State>>>,
 }
 
 impl<State> PrefixedCommandBuilder<State>
@@ -365,7 +377,7 @@ where
         F: PrefixedCommandHandler<State, Args> + 'static,
         Args: Send + Sync + 'static,
     {
-        let wrapper = CommandHandlerHolder::new(handler);
+        let wrapper = PrefixedCommandHandlerWrapper::new(handler);
 
         PrefixedCommandBuilder {
             name: name.into(),
@@ -373,6 +385,7 @@ where
             summary: None,
             description: None,
             handler: Arc::new(wrapper),
+            on_errors: Vec::new(),
         }
     }
 
@@ -414,6 +427,24 @@ where
         self
     }
 
+    /// Sets an error handler specifically for this command.
+    ///
+    /// Arguments:
+    /// * `handler` - The error handler.
+    ///
+    /// Returns:
+    /// [`PrefixedCommandBuilder`] - The command builder with the error handler set.
+    pub fn on_error<F, Dummy, Error>(mut self, handler: F) -> Self
+    where
+        F: ErrorHandler<State, Dummy, Error> + 'static,
+        Dummy: Send + Sync + 'static,
+        Error: Send + Sync + 'static,
+    {
+        self.on_errors
+            .push(Arc::new(ErrorHandlerWrapper::new(handler)));
+        self
+    }
+
     /// Builds the command, consuming the builder and returning a [`Command`] with the set fields.
     ///
     /// Returns:
@@ -425,11 +456,77 @@ where
             summary: self.summary,
             description: self.description,
             handler: self.handler,
+            on_errors: self.on_errors,
         }
     }
 }
 
-pub type CommandResult = Result<(), CommandError>;
+/// Converts a command handler's return type into a [`Result<(), CommandError>`].
+pub trait IntoCommandResult {
+    /// Converts a command handler's return type into a [`Result<(), CommandError>`].
+    ///
+    /// Returns:
+    /// [`Result<(), CommandError>`] - The converted result.
+    fn into_command_result(self) -> Result<(), CommandError>;
+}
+
+impl IntoCommandResult for () {
+    fn into_command_result(self) -> Result<(), CommandError> {
+        Ok(())
+    }
+}
+
+impl<T, E> IntoCommandResult for Result<T, E>
+where
+    E: Error + Send + Sync + 'static,
+{
+    fn into_command_result(self) -> Result<(), CommandError> {
+        match self {
+            Ok(_) => Ok(()),
+            Err(err) => Err(CommandError::Runtime(Arc::new(err))),
+        }
+    }
+}
+
+/// Parses an argument, handling panics if they happen.
+///
+/// Arguments:
+/// * `ctx` - The prefixed command's context.
+/// * `args` - The raw arguments to parse from.
+///
+/// Returns:
+/// * `Ok((T, String))` - The parsed argument and the remaining raw arguments.
+/// * `Err(ArgumentError)` - If the argument fails to parse.
+async fn parse_arg<T, State>(
+    ctx: PrefixedContext<State>,
+    args: String,
+) -> Result<(T, String), ArgumentError>
+where
+    T: IntoArgument<State> + 'static,
+    State: StateBound,
+{
+    tokio::spawn(T::into_argument(ctx, args))
+        .await
+        .map_err(|e| ArgumentError::Runtime(Arc::new(e)))?
+}
+
+/// Handles a command's execution, catching and wrapping panics if any.
+///
+/// Arguments:
+/// * `fut` - The future to await and wrap on error.
+///
+/// Returns:
+/// [`CommandResult`] - The resulting command result.
+async fn handle_run<Fut, Res>(fut: Fut) -> CommandResult
+where
+    Fut: Future<Output = Res> + Send + 'static,
+    Res: IntoCommandResult + Send + 'static,
+{
+    tokio::spawn(fut)
+        .await
+        .map_err(|e| CommandError::Runtime(Arc::new(e)))?
+        .into_command_result()
+}
 
 /// Trait for command handlers, the functions that execute when a command is run.
 pub trait PrefixedCommandHandler<State, Args>: Send + Sync
@@ -437,6 +534,9 @@ where
     State: StateBound,
 {
     /// Runs the command handler.
+    ///
+    /// This function must never panic. Use [`parse_arg`] and [`handle_run`] to handle them
+    /// properly.
     ///
     /// Arguments:
     /// * `ctx` - The context of the command, which contains information about the message,
@@ -453,34 +553,30 @@ where
 impl<State, F, Fut, Res> PrefixedCommandHandler<State, ()> for F
 where
     F: Fn(PrefixedContext<State>) -> Fut + Send + Sync + 'static,
-    Fut: Future<Output = Res> + Send,
+    Fut: Future<Output = Res> + Send + 'static,
+    Res: IntoCommandResult + Send + 'static,
     State: StateBound,
 {
     fn run(&self, ctx: PrefixedContext<State>, _args: &str) -> DynFuture<'_, CommandResult> {
-        Box::pin(async move {
-            (self)(ctx).await;
-
-            Ok(())
-        })
+        Box::pin(handle_run((self)(ctx)))
     }
 }
 
 impl<State, Func, Fut, A, Res> PrefixedCommandHandler<State, (A,)> for Func
 where
     Func: Fn(PrefixedContext<State>, A) -> Fut + Send + Sync + 'static,
-    Fut: Future<Output = Res> + Send,
+    Fut: Future<Output = Res> + Send + 'static,
+    Res: IntoCommandResult + Send + 'static,
     State: StateBound,
-    A: IntoArgument<State>,
+    A: IntoArgument<State> + 'static,
 {
     fn run(&self, ctx: PrefixedContext<State>, args: &str) -> DynFuture<'_, CommandResult> {
         let args = args.to_string();
 
         Box::pin(async move {
-            let (a, _remaining) = A::into_argument(ctx.clone(), args).await?;
+            let (a, _remaining) = parse_arg(ctx.clone(), args).await?;
 
-            (self)(ctx, a).await;
-
-            Ok(())
+            handle_run((self)(ctx, a)).await
         })
     }
 }
@@ -488,21 +584,20 @@ where
 impl<State, Func, Fut, A, B, Res> PrefixedCommandHandler<State, (A, B)> for Func
 where
     Func: Fn(PrefixedContext<State>, A, B) -> Fut + Send + Sync + 'static,
-    Fut: Future<Output = Res> + Send,
+    Fut: Future<Output = Res> + Send + 'static,
+    Res: IntoCommandResult + Send + 'static,
     State: StateBound,
-    A: IntoArgument<State>,
-    B: IntoArgument<State>,
+    A: IntoArgument<State> + 'static,
+    B: IntoArgument<State> + 'static,
 {
     fn run(&self, ctx: PrefixedContext<State>, args: &str) -> DynFuture<'_, CommandResult> {
         let args = args.to_string();
 
         Box::pin(async move {
-            let (a, remaining) = A::into_argument(ctx.clone(), args).await?;
-            let (b, _remaining) = B::into_argument(ctx.clone(), remaining).await?;
+            let (a, remaining) = parse_arg(ctx.clone(), args).await?;
+            let (b, _remaining) = parse_arg(ctx.clone(), remaining).await?;
 
-            (self)(ctx, a, b).await;
-
-            Ok(())
+            handle_run((self)(ctx, a, b)).await
         })
     }
 }
@@ -510,23 +605,22 @@ where
 impl<State, Func, Fut, A, B, C, Res> PrefixedCommandHandler<State, (A, B, C)> for Func
 where
     Func: Fn(PrefixedContext<State>, A, B, C) -> Fut + Send + Sync + 'static,
-    Fut: Future<Output = Res> + Send,
+    Fut: Future<Output = Res> + Send + 'static,
+    Res: IntoCommandResult + Send + 'static,
     State: StateBound,
-    A: IntoArgument<State>,
-    B: IntoArgument<State>,
-    C: IntoArgument<State>,
+    A: IntoArgument<State> + 'static,
+    B: IntoArgument<State> + 'static,
+    C: IntoArgument<State> + 'static,
 {
     fn run(&self, ctx: PrefixedContext<State>, args: &str) -> DynFuture<'_, CommandResult> {
         let args = args.to_string();
 
         Box::pin(async move {
-            let (a, remaining) = A::into_argument(ctx.clone(), args).await?;
-            let (b, remaining) = B::into_argument(ctx.clone(), remaining).await?;
-            let (c, _remaining) = C::into_argument(ctx.clone(), remaining).await?;
+            let (a, remaining) = parse_arg(ctx.clone(), args).await?;
+            let (b, remaining) = parse_arg(ctx.clone(), remaining).await?;
+            let (c, _remaining) = parse_arg(ctx.clone(), remaining).await?;
 
-            (self)(ctx, a, b, c).await;
-
-            Ok(())
+            handle_run((self)(ctx, a, b, c)).await
         })
     }
 }
@@ -534,25 +628,24 @@ where
 impl<State, Func, Fut, A, B, C, D, Res> PrefixedCommandHandler<State, (A, B, C, D)> for Func
 where
     Func: Fn(PrefixedContext<State>, A, B, C, D) -> Fut + Send + Sync + 'static,
-    Fut: Future<Output = Res> + Send,
+    Fut: Future<Output = Res> + Send + 'static,
+    Res: IntoCommandResult + Send + 'static,
     State: StateBound,
-    A: IntoArgument<State>,
-    B: IntoArgument<State>,
-    C: IntoArgument<State>,
-    D: IntoArgument<State>,
+    A: IntoArgument<State> + 'static,
+    B: IntoArgument<State> + 'static,
+    C: IntoArgument<State> + 'static,
+    D: IntoArgument<State> + 'static,
 {
     fn run(&self, ctx: PrefixedContext<State>, args: &str) -> DynFuture<'_, CommandResult> {
         let args = args.to_string();
 
         Box::pin(async move {
-            let (a, remaining) = A::into_argument(ctx.clone(), args).await?;
-            let (b, remaining) = B::into_argument(ctx.clone(), remaining).await?;
-            let (c, remaining) = C::into_argument(ctx.clone(), remaining).await?;
-            let (d, _remaining) = D::into_argument(ctx.clone(), remaining).await?;
+            let (a, remaining) = parse_arg(ctx.clone(), args).await?;
+            let (b, remaining) = parse_arg(ctx.clone(), remaining).await?;
+            let (c, remaining) = parse_arg(ctx.clone(), remaining).await?;
+            let (d, _remaining) = parse_arg(ctx.clone(), remaining).await?;
 
-            (self)(ctx, a, b, c, d).await;
-
-            Ok(())
+            handle_run((self)(ctx, a, b, c, d)).await
         })
     }
 }
@@ -560,27 +653,26 @@ where
 impl<State, Func, Fut, A, B, C, D, E, Res> PrefixedCommandHandler<State, (A, B, C, D, E)> for Func
 where
     Func: Fn(PrefixedContext<State>, A, B, C, D, E) -> Fut + Send + Sync + 'static,
-    Fut: Future<Output = Res> + Send,
+    Fut: Future<Output = Res> + Send + 'static,
+    Res: IntoCommandResult + Send + 'static,
     State: StateBound,
-    A: IntoArgument<State>,
-    B: IntoArgument<State>,
-    C: IntoArgument<State>,
-    D: IntoArgument<State>,
-    E: IntoArgument<State>,
+    A: IntoArgument<State> + 'static,
+    B: IntoArgument<State> + 'static,
+    C: IntoArgument<State> + 'static,
+    D: IntoArgument<State> + 'static,
+    E: IntoArgument<State> + 'static,
 {
     fn run(&self, ctx: PrefixedContext<State>, args: &str) -> DynFuture<'_, CommandResult> {
         let args = args.to_string();
 
         Box::pin(async move {
-            let (a, remaining) = A::into_argument(ctx.clone(), args).await?;
-            let (b, remaining) = B::into_argument(ctx.clone(), remaining).await?;
-            let (c, remaining) = C::into_argument(ctx.clone(), remaining).await?;
-            let (d, remaining) = D::into_argument(ctx.clone(), remaining).await?;
-            let (e, _remaining) = E::into_argument(ctx.clone(), remaining).await?;
+            let (a, remaining) = parse_arg(ctx.clone(), args).await?;
+            let (b, remaining) = parse_arg(ctx.clone(), remaining).await?;
+            let (c, remaining) = parse_arg(ctx.clone(), remaining).await?;
+            let (d, remaining) = parse_arg(ctx.clone(), remaining).await?;
+            let (e, _remaining) = parse_arg(ctx.clone(), remaining).await?;
 
-            (self)(ctx, a, b, c, d, e).await;
-
-            Ok(())
+            handle_run((self)(ctx, a, b, c, d, e)).await
         })
     }
 }
@@ -589,43 +681,43 @@ impl<State, Func, Fut, A, B, C, D, E, F, Res> PrefixedCommandHandler<State, (A, 
     for Func
 where
     Func: Fn(PrefixedContext<State>, A, B, C, D, E, F) -> Fut + Send + Sync + 'static,
-    Fut: Future<Output = Res> + Send,
+    Fut: Future<Output = Res> + Send + 'static,
+    Res: IntoCommandResult + Send + 'static,
     State: StateBound,
-    A: IntoArgument<State>,
-    B: IntoArgument<State>,
-    C: IntoArgument<State>,
-    D: IntoArgument<State>,
-    E: IntoArgument<State>,
-    F: IntoArgument<State>,
+    A: IntoArgument<State> + 'static,
+    B: IntoArgument<State> + 'static,
+    C: IntoArgument<State> + 'static,
+    D: IntoArgument<State> + 'static,
+    E: IntoArgument<State> + 'static,
+    F: IntoArgument<State> + 'static,
 {
     fn run(&self, ctx: PrefixedContext<State>, args: &str) -> DynFuture<'_, CommandResult> {
         let args = args.to_string();
 
         Box::pin(async move {
-            let (a, remaining) = A::into_argument(ctx.clone(), args).await?;
-            let (b, remaining) = B::into_argument(ctx.clone(), remaining).await?;
-            let (c, remaining) = C::into_argument(ctx.clone(), remaining).await?;
-            let (d, remaining) = D::into_argument(ctx.clone(), remaining).await?;
-            let (e, remaining) = E::into_argument(ctx.clone(), remaining).await?;
-            let (f, _remaining) = F::into_argument(ctx.clone(), remaining).await?;
+            let (a, remaining) = parse_arg(ctx.clone(), args).await?;
+            let (b, remaining) = parse_arg(ctx.clone(), remaining).await?;
+            let (c, remaining) = parse_arg(ctx.clone(), remaining).await?;
+            let (d, remaining) = parse_arg(ctx.clone(), remaining).await?;
+            let (e, remaining) = parse_arg(ctx.clone(), remaining).await?;
+            let (f, _remaining) = parse_arg(ctx.clone(), remaining).await?;
 
-            (self)(ctx, a, b, c, d, e, f).await;
-
-            Ok(())
+            handle_run((self)(ctx, a, b, c, d, e, f)).await
         })
     }
 }
 
-/// A wrapper for command handler functions to be able to implement [`CommandHandlerWithoutArgs`]
-/// for all command handlers independetnly of their `Args` type.
-struct CommandHandlerHolder<F, Args> {
+/// A wrapper for command handler functions to be able to implement
+/// [`PrefixedCommandHandlerWithoutArgs`] for all command handlers independetnly of their `Args`
+/// type.
+struct PrefixedCommandHandlerWrapper<F, Args> {
     handler: F,
     _args: PhantomData<Args>,
 }
 
-impl<F, Args> CommandHandlerHolder<F, Args> {
+impl<F, Args> PrefixedCommandHandlerWrapper<F, Args> {
     fn new(handler: F) -> Self {
-        CommandHandlerHolder {
+        PrefixedCommandHandlerWrapper {
             handler,
             _args: PhantomData,
         }
@@ -641,10 +733,21 @@ pub trait PrefixedCommandHandlerWithoutArgs<State>: Send + Sync
 where
     State: StateBound,
 {
+    /// Runs the internal handler function.
+    ///
+    /// This function never panics, since panics are wrapped before being returned as an error.
+    ///
+    /// Arguments:
+    /// * `ctx` - The context to run the command with.
+    /// * `args` - The raw arguments the command was called with.
+    ///
+    /// Returns:
+    /// [`CommandResult`] - The result of running the command.
     fn run(&self, ctx: PrefixedContext<State>, args: &str) -> DynFuture<'_, CommandResult>;
 }
 
-impl<State, F, Args> PrefixedCommandHandlerWithoutArgs<State> for CommandHandlerHolder<F, Args>
+impl<State, F, Args> PrefixedCommandHandlerWithoutArgs<State>
+    for PrefixedCommandHandlerWrapper<F, Args>
 where
     State: StateBound,
     F: PrefixedCommandHandler<State, Args>,
@@ -672,6 +775,9 @@ where
 
     /// Sub-commands and sub-groups of this group.
     pub children: Vec<CommandNode<State>>,
+
+    /// Error handlers that catch errors for all children of this group.
+    pub(crate) on_errors: Vec<Arc<dyn ErrorHandlerWithoutType<State>>>,
 }
 
 impl<State> PrefixedCommandGroup<State>
@@ -699,6 +805,7 @@ where
     summary: Option<String>,
     description: Option<String>,
     children: Vec<CommandNode<State>>,
+    on_errors: Vec<Arc<dyn ErrorHandlerWithoutType<State>>>,
 }
 
 impl<State> PrefixedCommandGroupBuilder<State>
@@ -718,6 +825,7 @@ where
             summary: None,
             description: None,
             children: Vec::new(),
+            on_errors: Vec::new(),
         }
     }
 
@@ -771,6 +879,25 @@ where
         self
     }
 
+    /// Sets an error handler for all of this group's children.
+    ///
+    /// Arguments:
+    /// * `handler` - The error handler to set.
+    ///
+    /// Returns:
+    /// [`PrefixedCommandGroupBuilder`] - The current command group builder with the error handler
+    /// added to the error handlers list.
+    pub fn on_error<F, Dummy, Error>(mut self, handler: F) -> Self
+    where
+        F: ErrorHandler<State, Dummy, Error> + 'static,
+        Dummy: Send + Sync + 'static,
+        Error: Send + Sync + 'static,
+    {
+        self.on_errors
+            .push(Arc::new(ErrorHandlerWrapper::new(handler)));
+        self
+    }
+
     /// Builds the command group, consuming the builder and returning a [`PrefixedCommandGroup`]
     /// with the set fields.
     ///
@@ -782,6 +909,7 @@ where
             summary: self.summary,
             description: self.description,
             children: self.children,
+            on_errors: self.on_errors,
         }
     }
 }

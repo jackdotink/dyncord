@@ -50,6 +50,8 @@
 //! }
 //! ```
 
+use std::error::Error;
+use std::marker::PhantomData;
 use std::sync::Arc;
 
 pub use twilight_gateway::Event;
@@ -71,6 +73,7 @@ pub use twilight_model::gateway::payload::incoming::{
     WebhooksUpdate,
 };
 
+use crate::errors::{ErrorHandler, ErrorHandlerWithoutType, ErrorHandlerWrapper};
 use crate::handle::Handle;
 use crate::state::StateBound;
 use crate::utils::DynFuture;
@@ -90,25 +93,94 @@ where
     pub event: E,
 }
 
-pub trait EventHandler<State, E>
+/// The result type to which all event handler function return values are converted.
+pub type EventResult = Result<(), Arc<dyn Error + Send + Sync>>;
+
+pub trait IntoEventResult {
+    fn into_event_result(self) -> EventResult;
+}
+
+impl IntoEventResult for () {
+    fn into_event_result(self) -> EventResult {
+        Ok(())
+    }
+}
+
+impl<T, E> IntoEventResult for Result<T, E>
+where
+    E: Error + Send + Sync + 'static,
+{
+    fn into_event_result(self) -> EventResult {
+        match self {
+            Ok(_) => Ok(()),
+            Err(error) => Err(Arc::new(error)),
+        }
+    }
+}
+
+#[derive(Clone)]
+pub(crate) struct EventHandler<State>
 where
     State: StateBound,
 {
-    fn handle(&self, ctx: EventContext<State, E>) -> DynFuture<'static, ()>;
+    pub handler: Arc<dyn EventHandlerHandlerWithoutArgs<State> + 'static>,
+    pub on_errors: Vec<Arc<dyn ErrorHandlerWithoutType<State>>>,
+}
+
+pub struct EventHandlerBuilder<State>
+where
+    State: StateBound,
+{
+    handler: Arc<dyn EventHandlerHandlerWithoutArgs<State> + 'static>,
+    on_errors: Vec<Arc<dyn ErrorHandlerWithoutType<State>>>,
+}
+
+impl<State> EventHandlerBuilder<State>
+where
+    State: StateBound,
+{
+    pub fn on_error<Dummy, Error>(
+        mut self,
+        handler: impl ErrorHandler<State, Dummy, Error> + 'static,
+    ) -> Self
+    where
+        Dummy: Send + Sync + 'static,
+        Error: Send + Sync + 'static,
+    {
+        self.on_errors
+            .push(Arc::new(ErrorHandlerWrapper::new(handler)));
+        self
+    }
+
+    pub(crate) fn build(self) -> EventHandler<State> {
+        EventHandler {
+            handler: self.handler,
+            on_errors: self.on_errors,
+        }
+    }
+}
+
+/// Trait implemented by all event handler functions.
+pub trait EventHandlerHandler<State, E>: Send + Sync
+where
+    State: StateBound,
+{
+    fn handle(&self, ctx: EventContext<State, E>) -> DynFuture<'_, EventResult>;
 }
 
 /// Implements [`EventHandler`] for any function `Fn(EventContext<State, E>) -> Fut`.
 macro_rules! impl_event_handler_for {
     ($($event:ty),* $(,)?) => {
         $(
-            impl<State, F, Fut> EventHandler<State, $event> for F
+            impl<State, F, Fut, Res> EventHandlerHandler<State, $event> for F
             where
                 State: StateBound,
                 F: Fn(EventContext<State, $event>) -> Fut + Send + Sync + 'static,
-                Fut: Future<Output = ()> + Send + 'static,
+                Fut: Future<Output = Res> + Send + 'static,
+                Res: IntoEventResult,
             {
-                fn handle(&self, ctx: EventContext<State, $event>) -> DynFuture<'static, ()> {
-                    Box::pin(self(ctx))
+                fn handle(&self, ctx: EventContext<State, $event>) -> DynFuture<'_, EventResult> {
+                    Box::pin(async move { self(ctx).await.into_event_result() })
                 }
             }
         )*
@@ -193,244 +265,270 @@ pub struct GatewayInvalidateSession;
 pub struct GatewayReconnect;
 pub struct Resumed;
 
-#[derive(Clone)]
-pub enum OnEvent<State>
+pub struct EventHandlerWrapper<F, Event> {
+    func: F,
+    _event: PhantomData<Event>,
+}
+
+impl<F, Event> EventHandlerWrapper<F, Event> {
+    fn new(func: F) -> Self {
+        EventHandlerWrapper {
+            func,
+            _event: PhantomData,
+        }
+    }
+}
+
+pub trait EventHandlerHandlerWithoutArgs<State>: Send + Sync
 where
     State: StateBound,
 {
-    All(Arc<dyn EventHandler<State, Event>>),
-    AutoModerationActionExecution(Arc<dyn EventHandler<State, AutoModerationActionExecution>>),
-    AutoModerationRuleCreate(Arc<dyn EventHandler<State, AutoModerationRuleCreate>>),
-    AutoModerationRuleDelete(Arc<dyn EventHandler<State, AutoModerationRuleDelete>>),
-    AutoModerationRuleUpdate(Arc<dyn EventHandler<State, AutoModerationRuleUpdate>>),
-    BanAdd(Arc<dyn EventHandler<State, BanAdd>>),
-    BanRemove(Arc<dyn EventHandler<State, BanRemove>>),
-    ChannelCreate(Arc<dyn EventHandler<State, ChannelCreate>>),
-    ChannelDelete(Arc<dyn EventHandler<State, ChannelDelete>>),
-    ChannelPinsUpdate(Arc<dyn EventHandler<State, ChannelPinsUpdate>>),
-    ChannelUpdate(Arc<dyn EventHandler<State, ChannelUpdate>>),
-    CommandPermissionsUpdate(Arc<dyn EventHandler<State, CommandPermissionsUpdate>>),
-    EntitlementCreate(Arc<dyn EventHandler<State, EntitlementCreate>>),
-    EntitlementDelete(Arc<dyn EventHandler<State, EntitlementDelete>>),
-    EntitlementUpdate(Arc<dyn EventHandler<State, EntitlementUpdate>>),
-    GatewayClose(Arc<dyn EventHandler<State, GatewayClose>>),
-    GatewayHeartbeat(Arc<dyn EventHandler<State, GatewayHeartbeat>>),
-    GatewayHeartbeatAck(Arc<dyn EventHandler<State, GatewayHeartbeatAck>>),
-    GatewayHello(Arc<dyn EventHandler<State, Hello>>),
-    GatewayInvalidateSession(Arc<dyn EventHandler<State, GatewayInvalidateSession>>),
-    GatewayReconnect(Arc<dyn EventHandler<State, GatewayReconnect>>),
-    GuildAuditLogEntryCreate(Arc<dyn EventHandler<State, GuildAuditLogEntryCreate>>),
-    GuildCreate(Arc<dyn EventHandler<State, GuildCreate>>),
-    GuildDelete(Arc<dyn EventHandler<State, GuildDelete>>),
-    GuildEmojisUpdate(Arc<dyn EventHandler<State, GuildEmojisUpdate>>),
-    GuildIntegrationsUpdate(Arc<dyn EventHandler<State, GuildIntegrationsUpdate>>),
-    GuildScheduledEventCreate(Arc<dyn EventHandler<State, GuildScheduledEventCreate>>),
-    GuildScheduledEventDelete(Arc<dyn EventHandler<State, GuildScheduledEventDelete>>),
-    GuildScheduledEventUpdate(Arc<dyn EventHandler<State, GuildScheduledEventUpdate>>),
-    GuildScheduledEventUserAdd(Arc<dyn EventHandler<State, GuildScheduledEventUserAdd>>),
-    GuildScheduledEventUserRemove(Arc<dyn EventHandler<State, GuildScheduledEventUserRemove>>),
-    GuildStickersUpdate(Arc<dyn EventHandler<State, GuildStickersUpdate>>),
-    GuildUpdate(Arc<dyn EventHandler<State, GuildUpdate>>),
-    IntegrationCreate(Arc<dyn EventHandler<State, IntegrationCreate>>),
-    IntegrationDelete(Arc<dyn EventHandler<State, IntegrationDelete>>),
-    IntegrationUpdate(Arc<dyn EventHandler<State, IntegrationUpdate>>),
-    InteractionCreate(Arc<dyn EventHandler<State, InteractionCreate>>),
-    InviteCreate(Arc<dyn EventHandler<State, InviteCreate>>),
-    InviteDelete(Arc<dyn EventHandler<State, InviteDelete>>),
-    MemberAdd(Arc<dyn EventHandler<State, MemberAdd>>),
-    MemberChunk(Arc<dyn EventHandler<State, MemberChunk>>),
-    MemberRemove(Arc<dyn EventHandler<State, MemberRemove>>),
-    MemberUpdate(Arc<dyn EventHandler<State, MemberUpdate>>),
-    MessageCreate(Arc<dyn EventHandler<State, MessageCreate>>),
-    MessageDelete(Arc<dyn EventHandler<State, MessageDelete>>),
-    MessageDeleteBulk(Arc<dyn EventHandler<State, MessageDeleteBulk>>),
-    MessagePollVoteAdd(Arc<dyn EventHandler<State, MessagePollVoteAdd>>),
-    MessagePollVoteRemove(Arc<dyn EventHandler<State, MessagePollVoteRemove>>),
-    MessageUpdate(Arc<dyn EventHandler<State, MessageUpdate>>),
-    PresenceUpdate(Arc<dyn EventHandler<State, PresenceUpdate>>),
-    RateLimited(Arc<dyn EventHandler<State, RateLimited>>),
-    ReactionAdd(Arc<dyn EventHandler<State, ReactionAdd>>),
-    ReactionRemove(Arc<dyn EventHandler<State, ReactionRemove>>),
-    ReactionRemoveAll(Arc<dyn EventHandler<State, ReactionRemoveAll>>),
-    ReactionRemoveEmoji(Arc<dyn EventHandler<State, ReactionRemoveEmoji>>),
-    Ready(Arc<dyn EventHandler<State, Ready>>),
-    Resumed(Arc<dyn EventHandler<State, Resumed>>),
-    RoleCreate(Arc<dyn EventHandler<State, RoleCreate>>),
-    RoleDelete(Arc<dyn EventHandler<State, RoleDelete>>),
-    RoleUpdate(Arc<dyn EventHandler<State, RoleUpdate>>),
-    StageInstanceCreate(Arc<dyn EventHandler<State, StageInstanceCreate>>),
-    StageInstanceDelete(Arc<dyn EventHandler<State, StageInstanceDelete>>),
-    StageInstanceUpdate(Arc<dyn EventHandler<State, StageInstanceUpdate>>),
-    ThreadCreate(Arc<dyn EventHandler<State, ThreadCreate>>),
-    ThreadDelete(Arc<dyn EventHandler<State, ThreadDelete>>),
-    ThreadListSync(Arc<dyn EventHandler<State, ThreadListSync>>),
-    ThreadMemberUpdate(Arc<dyn EventHandler<State, ThreadMemberUpdate>>),
-    ThreadMembersUpdate(Arc<dyn EventHandler<State, ThreadMembersUpdate>>),
-    ThreadUpdate(Arc<dyn EventHandler<State, ThreadUpdate>>),
-    TypingStart(Arc<dyn EventHandler<State, TypingStart>>),
-    UnavailableGuild(Arc<dyn EventHandler<State, UnavailableGuild>>),
-    UserUpdate(Arc<dyn EventHandler<State, UserUpdate>>),
-    VoiceServerUpdate(Arc<dyn EventHandler<State, VoiceServerUpdate>>),
-    VoiceStateUpdate(Arc<dyn EventHandler<State, VoiceStateUpdate>>),
-    WebhooksUpdate(Arc<dyn EventHandler<State, WebhooksUpdate>>),
+    fn handle(&self, ctx: EventContext<State, Event>) -> Option<DynFuture<'_, EventResult>>;
+
+    fn check_type(&self, event: &Event) -> bool;
 }
 
-macro_rules! match_event_type(
-    () => {};
+macro_rules! impl_event_handler_handler_without_args {
+    ($event:ident) => {
+        impl<State, Func> EventHandlerHandlerWithoutArgs<State>
+            for EventHandlerWrapper<Func, $event>
+        where
+            State: StateBound,
+            Func: EventHandlerHandler<State, $event>,
+        {
+            fn handle(
+                &self,
+                ctx: EventContext<State, Event>,
+            ) -> Option<DynFuture<'_, EventResult>> {
+                if let Event::$event(event) = ctx.event {
+                    let ctx = EventContext {
+                        event: event.clone(),
+                        handle: ctx.handle.clone(),
+                        state: ctx.state.clone(),
+                    };
 
-    ($event:ident $handler:ident $state:ident $handle:ident $type:ident, $($rest:tt)*) => {
-        if let Event::$type(event) = &$event && let Self::$type(handler) = $handler {
-            let ctx = EventContext {
-                state: $state,
-                handle: $handle,
-                event: event.clone(),
-            };
-            return Some(Box::pin(handler.handle(ctx)));
+                    return Some(self.func.handle(ctx));
+                }
+
+                None
+            }
+
+            fn check_type(&self, event: &Event) -> bool {
+                matches!(event, Event::$event(_))
+            }
         }
-
-        match_event_type!($($rest)*);
     };
 
-    ($event:ident $handler:ident $state:ident $handle:ident $type:ident boxed, $($rest:tt)*) => {
-        if let Event::$type(event) = &$event && let Self::$type(handler) = $handler {
-            let ctx = EventContext {
-                state: $state,
-                handle: $handle,
-                event: (**event).clone(),
-            };
-            return Some(Box::pin(handler.handle(ctx)));
-        }
+    ($event:ident boxed) => {
+        impl<State, Func> EventHandlerHandlerWithoutArgs<State>
+            for EventHandlerWrapper<Func, $event>
+        where
+            State: StateBound,
+            Func: EventHandlerHandler<State, $event>,
+        {
+            fn handle(
+                &self,
+                ctx: EventContext<State, Event>,
+            ) -> Option<DynFuture<'_, EventResult>> {
+                if let Event::$event(event) = ctx.event {
+                    let ctx = EventContext {
+                        event: (*event).clone(),
+                        handle: ctx.handle.clone(),
+                        state: ctx.state.clone(),
+                    };
 
-        match_event_type!($($rest)*);
+                    return Some(self.func.handle(ctx));
+                }
+
+                None
+            }
+
+            fn check_type(&self, event: &Event) -> bool {
+                matches!(event, Event::$event(_))
+            }
+        }
     };
 
-    ($event:ident $handler:ident $state:ident $handle:ident $type:ident placeholder, $($rest:tt)*) => {
-        if let Event::$type = &$event && let Self::$type(handler) = $handler {
-            let ctx = EventContext {
-                state: $state,
-                handle: $handle,
-                event: $type,
-            };
-            return Some(Box::pin(handler.handle(ctx)));
-        }
+    ($event:ident discarded) => {
+        impl<State, Func> EventHandlerHandlerWithoutArgs<State>
+            for EventHandlerWrapper<Func, $event>
+        where
+            State: StateBound,
+            Func: EventHandlerHandler<State, $event>,
+        {
+            fn handle(
+                &self,
+                ctx: EventContext<State, Event>,
+            ) -> Option<DynFuture<'_, EventResult>> {
+                if let Event::$event(_) = ctx.event {
+                    let ctx = EventContext {
+                        event: $event,
+                        handle: ctx.handle.clone(),
+                        state: ctx.state.clone(),
+                    };
 
-        match_event_type!($($rest)*);
+                    return Some(self.func.handle(ctx));
+                }
+
+                None
+            }
+
+            fn check_type(&self, event: &Event) -> bool {
+                matches!(event, Event::$event(_))
+            }
+        }
     };
 
-    ($event:ident $handler:ident $state:ident $handle:ident $type:ident discarded, $($rest:tt)*) => {
-        if let Event::$type(_) = &$event && let Self::$type(handler) = $handler {
-            let ctx = EventContext {
-                state: $state,
-                handle: $handle,
-                event: $type,
-            };
-            return Some(Box::pin(handler.handle(ctx)));
+    ($event:ident placeholder) => {
+        impl<State, Func> EventHandlerHandlerWithoutArgs<State>
+            for EventHandlerWrapper<Func, $event>
+        where
+            State: StateBound,
+            Func: EventHandlerHandler<State, $event>,
+        {
+            fn handle(
+                &self,
+                ctx: EventContext<State, Event>,
+            ) -> Option<DynFuture<'_, EventResult>> {
+                if let Event::$event = ctx.event {
+                    let ctx = EventContext {
+                        event: $event,
+                        handle: ctx.handle.clone(),
+                        state: ctx.state.clone(),
+                    };
+
+                    return Some(self.func.handle(ctx));
+                }
+
+                None
+            }
+
+            fn check_type(&self, event: &Event) -> bool {
+                matches!(event, Event::$event)
+            }
         }
+    };
 
-        match_event_type!($($rest)*);
-    }
-);
+    ($event:ident where inner = $inner:ident) => {
+        impl<State, Func> EventHandlerHandlerWithoutArgs<State>
+            for EventHandlerWrapper<Func, $inner>
+        where
+            State: StateBound,
+            Func: EventHandlerHandler<State, $inner>,
+        {
+            fn handle(
+                &self,
+                ctx: EventContext<State, Event>,
+            ) -> Option<DynFuture<'_, EventResult>> {
+                if let Event::$event(event) = ctx.event {
+                    let ctx = EventContext {
+                        event,
+                        handle: ctx.handle.clone(),
+                        state: ctx.state.clone(),
+                    };
 
-impl<State> OnEvent<State>
+                    return Some(self.func.handle(ctx));
+                }
+
+                None
+            }
+
+            fn check_type(&self, event: &Event) -> bool {
+                matches!(event, Event::$event(_))
+            }
+        }
+    };
+}
+
+impl<State, Func> EventHandlerHandlerWithoutArgs<State> for EventHandlerWrapper<Func, Event>
 where
     State: StateBound,
+    Func: EventHandlerHandler<State, Event>,
 {
-    pub fn handle(
-        &self,
-        handle: Handle<State>,
-        state: State,
-        event: Event,
-    ) -> Option<DynFuture<'static, ()>> {
-        if let Self::All(handler) = self {
-            let ctx = EventContext {
-                state,
-                handle,
-                event: event.clone(),
-            };
-            return Some(Box::pin(handler.handle(ctx)));
-        }
+    fn handle(&self, ctx: EventContext<State, Event>) -> Option<DynFuture<'_, EventResult>> {
+        Some(self.func.handle(ctx))
+    }
 
-        match_event_type!(
-            event self state handle AutoModerationActionExecution,
-            event self state handle AutoModerationRuleCreate,
-            event self state handle AutoModerationRuleDelete,
-            event self state handle AutoModerationRuleUpdate,
-            event self state handle BanAdd,
-            event self state handle BanRemove,
-            event self state handle ChannelCreate boxed,
-            event self state handle ChannelDelete boxed,
-            event self state handle ChannelUpdate boxed,
-            event self state handle ChannelPinsUpdate,
-            event self state handle CommandPermissionsUpdate,
-            event self state handle EntitlementCreate,
-            event self state handle EntitlementDelete,
-            event self state handle EntitlementUpdate,
-            event self state handle GuildAuditLogEntryCreate boxed,
-            event self state handle GuildCreate boxed,
-            event self state handle GuildUpdate boxed,
-            event self state handle GuildDelete,
-            event self state handle GuildEmojisUpdate,
-            event self state handle GuildIntegrationsUpdate,
-            event self state handle GuildScheduledEventCreate boxed,
-            event self state handle GuildScheduledEventDelete boxed,
-            event self state handle GuildScheduledEventUpdate boxed,
-            event self state handle GuildScheduledEventUserAdd,
-            event self state handle GuildScheduledEventUserRemove,
-            event self state handle GuildStickersUpdate,
-            event self state handle IntegrationCreate boxed,
-            event self state handle IntegrationUpdate boxed,
-            event self state handle IntegrationDelete,
-            event self state handle InteractionCreate boxed,
-            event self state handle InviteCreate boxed,
-            event self state handle InviteDelete,
-            event self state handle MemberAdd boxed,
-            event self state handle MemberRemove,
-            event self state handle MemberUpdate boxed,
-            event self state handle MemberChunk,
-            event self state handle MessageCreate boxed,
-            event self state handle MessageUpdate boxed,
-            event self state handle MessageDelete,
-            event self state handle MessageDeleteBulk,
-            event self state handle MessagePollVoteAdd,
-            event self state handle MessagePollVoteRemove,
-            event self state handle PresenceUpdate boxed,
-            event self state handle RateLimited,
-            event self state handle ReactionAdd boxed,
-            event self state handle ReactionRemove boxed,
-            event self state handle ReactionRemoveAll,
-            event self state handle ReactionRemoveEmoji,
-            event self state handle Ready,
-            event self state handle RoleCreate,
-            event self state handle RoleDelete,
-            event self state handle RoleUpdate,
-            event self state handle StageInstanceCreate,
-            event self state handle StageInstanceUpdate,
-            event self state handle StageInstanceDelete,
-            event self state handle ThreadCreate boxed,
-            event self state handle ThreadUpdate boxed,
-            event self state handle ThreadDelete,
-            event self state handle ThreadListSync,
-            event self state handle ThreadMemberUpdate boxed,
-            event self state handle ThreadMembersUpdate,
-            event self state handle TypingStart boxed,
-            event self state handle UnavailableGuild,
-            event self state handle UserUpdate,
-            event self state handle VoiceServerUpdate,
-            event self state handle VoiceStateUpdate boxed,
-            event self state handle WebhooksUpdate,
-
-            event self state handle GatewayClose discarded,
-            event self state handle GatewayHeartbeat placeholder,
-            event self state handle GatewayHeartbeatAck placeholder,
-            event self state handle GatewayHello,
-            event self state handle GatewayInvalidateSession discarded,
-            event self state handle GatewayReconnect placeholder,
-            event self state handle Resumed placeholder,
-        );
-
-        None
+    fn check_type(&self, _: &Event) -> bool {
+        true
     }
 }
+
+impl_event_handler_handler_without_args!(AutoModerationActionExecution);
+impl_event_handler_handler_without_args!(AutoModerationRuleCreate);
+impl_event_handler_handler_without_args!(AutoModerationRuleDelete);
+impl_event_handler_handler_without_args!(AutoModerationRuleUpdate);
+impl_event_handler_handler_without_args!(BanAdd);
+impl_event_handler_handler_without_args!(BanRemove);
+impl_event_handler_handler_without_args!(ChannelCreate boxed);
+impl_event_handler_handler_without_args!(ChannelDelete boxed);
+impl_event_handler_handler_without_args!(ChannelUpdate boxed);
+impl_event_handler_handler_without_args!(ChannelPinsUpdate);
+impl_event_handler_handler_without_args!(CommandPermissionsUpdate);
+impl_event_handler_handler_without_args!(EntitlementCreate);
+impl_event_handler_handler_without_args!(EntitlementDelete);
+impl_event_handler_handler_without_args!(EntitlementUpdate);
+impl_event_handler_handler_without_args!(GuildAuditLogEntryCreate boxed);
+impl_event_handler_handler_without_args!(GuildCreate boxed);
+impl_event_handler_handler_without_args!(GuildUpdate boxed);
+impl_event_handler_handler_without_args!(GuildDelete);
+impl_event_handler_handler_without_args!(GuildEmojisUpdate);
+impl_event_handler_handler_without_args!(GuildIntegrationsUpdate);
+impl_event_handler_handler_without_args!(GuildScheduledEventCreate boxed);
+impl_event_handler_handler_without_args!(GuildScheduledEventDelete boxed);
+impl_event_handler_handler_without_args!(GuildScheduledEventUpdate boxed);
+impl_event_handler_handler_without_args!(GuildScheduledEventUserAdd);
+impl_event_handler_handler_without_args!(GuildScheduledEventUserRemove);
+impl_event_handler_handler_without_args!(GuildStickersUpdate);
+impl_event_handler_handler_without_args!(IntegrationCreate boxed);
+impl_event_handler_handler_without_args!(IntegrationUpdate boxed);
+impl_event_handler_handler_without_args!(IntegrationDelete);
+impl_event_handler_handler_without_args!(InteractionCreate boxed);
+impl_event_handler_handler_without_args!(InviteCreate boxed);
+impl_event_handler_handler_without_args!(InviteDelete);
+impl_event_handler_handler_without_args!(MemberAdd boxed);
+impl_event_handler_handler_without_args!(MemberRemove);
+impl_event_handler_handler_without_args!(MemberUpdate boxed);
+impl_event_handler_handler_without_args!(MemberChunk);
+impl_event_handler_handler_without_args!(MessageCreate boxed);
+impl_event_handler_handler_without_args!(MessageUpdate boxed);
+impl_event_handler_handler_without_args!(MessageDelete);
+impl_event_handler_handler_without_args!(MessageDeleteBulk);
+impl_event_handler_handler_without_args!(MessagePollVoteAdd);
+impl_event_handler_handler_without_args!(MessagePollVoteRemove);
+impl_event_handler_handler_without_args!(PresenceUpdate boxed);
+impl_event_handler_handler_without_args!(RateLimited);
+impl_event_handler_handler_without_args!(ReactionAdd boxed);
+impl_event_handler_handler_without_args!(ReactionRemove boxed);
+impl_event_handler_handler_without_args!(ReactionRemoveAll);
+impl_event_handler_handler_without_args!(ReactionRemoveEmoji);
+impl_event_handler_handler_without_args!(Ready);
+impl_event_handler_handler_without_args!(RoleCreate);
+impl_event_handler_handler_without_args!(RoleDelete);
+impl_event_handler_handler_without_args!(RoleUpdate);
+impl_event_handler_handler_without_args!(StageInstanceCreate);
+impl_event_handler_handler_without_args!(StageInstanceUpdate);
+impl_event_handler_handler_without_args!(StageInstanceDelete);
+impl_event_handler_handler_without_args!(ThreadCreate boxed);
+impl_event_handler_handler_without_args!(ThreadUpdate boxed);
+impl_event_handler_handler_without_args!(ThreadDelete);
+impl_event_handler_handler_without_args!(ThreadListSync);
+impl_event_handler_handler_without_args!(ThreadMemberUpdate boxed);
+impl_event_handler_handler_without_args!(ThreadMembersUpdate);
+impl_event_handler_handler_without_args!(TypingStart boxed);
+impl_event_handler_handler_without_args!(UnavailableGuild);
+impl_event_handler_handler_without_args!(UserUpdate);
+impl_event_handler_handler_without_args!(VoiceServerUpdate);
+impl_event_handler_handler_without_args!(VoiceStateUpdate boxed);
+impl_event_handler_handler_without_args!(WebhooksUpdate);
+
+impl_event_handler_handler_without_args!(GatewayClose discarded);
+impl_event_handler_handler_without_args!(GatewayHeartbeat placeholder);
+impl_event_handler_handler_without_args!(GatewayHeartbeatAck placeholder);
+impl_event_handler_handler_without_args!(GatewayHello where inner = Hello);
+impl_event_handler_handler_without_args!(GatewayInvalidateSession discarded);
+impl_event_handler_handler_without_args!(GatewayReconnect placeholder);
+impl_event_handler_handler_without_args!(Resumed placeholder);
 
 /// A helper struct to create event handlers more easily.
 ///
@@ -448,22 +546,28 @@ pub struct On;
 
 macro_rules! impl_on {
     ($event:ident $func:ident) => {
-        pub fn $func<F, State>(handler: F) -> OnEvent<State>
+        pub fn $func<F, State>(handler: F) -> EventHandlerBuilder<State>
         where
-            F: EventHandler<State, $event> + 'static,
+            F: EventHandlerHandler<State, $event> + 'static,
             State: StateBound,
         {
-            OnEvent::$event(Arc::new(handler))
+            EventHandlerBuilder {
+                handler: Arc::new(EventHandlerWrapper::new(handler)),
+                on_errors: Vec::new(),
+            }
         }
     };
 
     ($event:ident $func:ident ($inner:ident)) => {
-        pub fn $func<F, State>(handler: F) -> OnEvent<State>
+        pub fn $func<F, State>(handler: F) -> EventHandlerBuilder<State>
         where
-            F: EventHandler<State, $inner> + 'static,
+            F: EventHandlerHandler<State, $inner> + 'static,
             State: StateBound,
         {
-            OnEvent::$event(Arc::new(handler))
+            EventHandlerBuilder {
+                handler: Arc::new(EventHandlerWrapper::new(handler)),
+                on_errors: Vec::new(),
+            }
         }
     };
 }

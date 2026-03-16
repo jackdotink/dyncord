@@ -24,5 +24,5 @@ async fn main() {
 }
 
 async fn hello(ctx: SlashContext, name: Option<String>) {
-    ctx.respond(format!("Hey there, {name:?}!")).await;
+    ctx.respond(format!("Hey there, {name:?}!")).await.unwrap();
 }

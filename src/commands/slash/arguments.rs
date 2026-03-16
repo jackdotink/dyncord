@@ -2,12 +2,12 @@
 
 use std::collections::HashMap;
 
-use thiserror::Error;
 use twilight_model::application::command::{CommandOption, CommandOptionType};
 use twilight_model::application::interaction::application_command::{
     CommandDataOption, CommandOptionValue,
 };
 
+use crate::commands::errors::ArgumentError;
 use crate::commands::slash::context::SlashContext;
 use crate::state::StateBound;
 use crate::utils::{DynFuture, pinbox};
@@ -39,7 +39,7 @@ pub enum ArgumentMeta {
 
 impl ArgumentMeta {
     /// Returns the inner value's argument name.
-    /// 
+    ///
     /// Returns:
     /// [`&String`] -> The inner value's argument name.
     pub fn name(&self) -> &String {
@@ -50,7 +50,7 @@ impl ArgumentMeta {
     }
 
     /// Returns the argument type of the current argument.
-    /// 
+    ///
     /// Returns:
     /// [`ArgumentType`] - The current argument's type.
     pub fn r#type(&self) -> ArgumentType {
@@ -309,23 +309,6 @@ impl From<OptionalStringArgumentBuilder> for ArgumentMeta {
     }
 }
 
-#[derive(Debug, Error)]
-pub enum ArgumentError {
-    #[error("An argument was received, but its value was not of the expected type.")]
-    IncorrectType,
-
-    #[error("A required argument was not received together with the Discord event.")]
-    Missing,
-
-    #[error(
-        "An argument was internally queried since we got a slash command invocation, but the argument's metadata was missing."
-    )]
-    MissingMeta,
-
-    #[error("An argument had the correct Discord-native type, but the value passed was invalid.")]
-    InvalidValue,
-}
-
 pub trait IntoArgument<State>: Sized + Send + Sync
 where
     State: StateBound,
@@ -367,7 +350,7 @@ where
             if let CommandOptionValue::String(value) = argument.value {
                 pinbox(Ok(value))
             } else {
-                pinbox(Err(ArgumentError::IncorrectType))
+                pinbox(Err(ArgumentError::Mistyped))
             }
         } else {
             pinbox(Err(ArgumentError::Missing))
@@ -391,7 +374,7 @@ where
             if let CommandOptionValue::String(value) = argument.value {
                 pinbox(Ok(Some(value)))
             } else {
-                pinbox(Err(ArgumentError::IncorrectType))
+                pinbox(Err(ArgumentError::Mistyped))
             }
         } else {
             pinbox(Ok(None))

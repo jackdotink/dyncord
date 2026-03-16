@@ -4,6 +4,7 @@ mod aliases;
 mod bot;
 pub mod builtin;
 pub mod commands;
+pub mod errors;
 pub mod events;
 pub mod handle;
 pub mod state;

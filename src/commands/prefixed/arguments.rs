@@ -1,20 +1,9 @@
 use std::fmt::Display;
 
-use thiserror::Error;
-
+use crate::commands::errors::ArgumentError;
 use crate::commands::prefixed::context::PrefixedContext;
 use crate::state::StateBound;
 use crate::utils::DynFuture;
-
-/// An error occurred while parsing an argument for a command.
-#[derive(Debug, Error)]
-pub enum ParsingError {
-    #[error("The argument provided is invalid.")]
-    InvalidArgument,
-
-    #[error("Not enough arguments were provided.")]
-    MissingArgument,
-}
 
 /// Implements conversion from a raw message into a command's argument.
 pub trait IntoArgument<State = ()>: Sized + Send + Sync
@@ -24,7 +13,7 @@ where
     /// Converts a raw message into a command's argument.
     ///
     /// This function takes two arguments, the command context and the raw arguments. It returns
-    /// the parsed argument and the remaining raw arguments if successful, or a [`ParsingError`]
+    /// the parsed argument and the remaining raw arguments if successful, or an [`ArgumentError`]
     /// if parsing the argument failed.
     ///
     /// For example, to parse a `String` argument (which takes one word), the implementation looks
@@ -34,7 +23,7 @@ where
     /// fn into_argument(
     ///     _ctx: CommandContext<State>,
     ///     args: String,
-    /// ) -> DynFuture<'static, Result<(Self, String), ParsingError>> {
+    /// ) -> DynFuture<'static, Result<(Self, String), ArgumentError>> {
     ///     Box::pin(async move {
     ///         let trimmed = args.trim_start();
     ///
@@ -42,7 +31,7 @@ where
     ///             Some((arg, remaining)) => Ok((arg.to_string(), remaining.to_string())),
     ///             None => {
     ///                 if args.is_empty() {
-    ///                     Err(ParsingError::MissingArgument)
+    ///                     Err(ArgumentError::Missing)
     ///                 } else {
     ///                     Ok((args.to_string(), "".to_string()))
     ///                 }
@@ -61,11 +50,11 @@ where
     /// Returns:
     /// * `Ok((argument, remaining_args))` - The parsed argument and the remaining raw arguments if
     ///   parsing was successful.
-    /// * `Err(ParsingError)` - A parsing error if parsing the argument failed.
+    /// * `Err(ArgumentError)` - A parsing error if parsing the argument failed.
     fn into_argument(
         ctx: PrefixedContext<State>,
         args: String,
-    ) -> DynFuture<'static, Result<(Self, String), ParsingError>>;
+    ) -> DynFuture<'static, Result<(Self, String), ArgumentError>>;
 }
 
 impl<State> IntoArgument<State> for String
@@ -75,7 +64,7 @@ where
     fn into_argument(
         _ctx: PrefixedContext<State>,
         args: String,
-    ) -> DynFuture<'static, Result<(Self, String), ParsingError>> {
+    ) -> DynFuture<'static, Result<(Self, String), ArgumentError>> {
         Box::pin(async move {
             let trimmed = args.trim_start();
 
@@ -84,7 +73,7 @@ where
 
                 Ok((argument.to_string(), remaining))
             } else {
-                Err(ParsingError::MissingArgument)
+                Err(ArgumentError::Missing)
             }
         })
     }
@@ -454,7 +443,7 @@ where
     fn into_argument(
         _ctx: PrefixedContext<State>,
         args: String,
-    ) -> DynFuture<'static, Result<(Self, String), ParsingError>> {
+    ) -> DynFuture<'static, Result<(Self, String), ArgumentError>> {
         Box::pin(async move { Ok((GreedyString(args.trim_start().to_string()), "".to_string())) })
     }
 }
@@ -466,14 +455,14 @@ where
     fn into_argument(
         ctx: PrefixedContext<State>,
         args: String,
-    ) -> DynFuture<'static, Result<(Self, String), ParsingError>> {
+    ) -> DynFuture<'static, Result<(Self, String), ArgumentError>> {
         Box::pin(async move {
             let (arg, remaining) = String::into_argument(ctx, args).await?;
             let mut chars = arg.chars();
 
             match (chars.next(), chars.next()) {
                 (Some(c), None) => Ok((c, remaining)),
-                _ => Err(ParsingError::InvalidArgument),
+                _ => Err(ArgumentError::Misformatted),
             }
         })
     }
@@ -486,12 +475,12 @@ where
     fn into_argument(
         ctx: PrefixedContext<State>,
         args: String,
-    ) -> DynFuture<'static, Result<(Self, String), ParsingError>> {
+    ) -> DynFuture<'static, Result<(Self, String), ArgumentError>> {
         Box::pin(async move {
             let (arg, remaining) = String::into_argument(ctx, args).await?;
             match arg.parse::<Self>() {
                 Ok(num) => Ok((num, remaining)),
-                Err(_) => Err(ParsingError::InvalidArgument),
+                Err(_) => Err(ArgumentError::Misformatted),
             }
         })
     }
@@ -504,12 +493,12 @@ where
     fn into_argument(
         ctx: PrefixedContext<State>,
         args: String,
-    ) -> DynFuture<'static, Result<(Self, String), ParsingError>> {
+    ) -> DynFuture<'static, Result<(Self, String), ArgumentError>> {
         Box::pin(async move {
             let (arg, remaining) = String::into_argument(ctx, args).await?;
             match arg.parse::<Self>() {
                 Ok(num) => Ok((num, remaining)),
-                Err(_) => Err(ParsingError::InvalidArgument),
+                Err(_) => Err(ArgumentError::Misformatted),
             }
         })
     }
@@ -522,12 +511,12 @@ where
     fn into_argument(
         ctx: PrefixedContext<State>,
         args: String,
-    ) -> DynFuture<'static, Result<(Self, String), ParsingError>> {
+    ) -> DynFuture<'static, Result<(Self, String), ArgumentError>> {
         Box::pin(async move {
             let (arg, remaining) = String::into_argument(ctx, args).await?;
             match arg.parse::<Self>() {
                 Ok(num) => Ok((num, remaining)),
-                Err(_) => Err(ParsingError::InvalidArgument),
+                Err(_) => Err(ArgumentError::Misformatted),
             }
         })
     }
@@ -540,12 +529,12 @@ where
     fn into_argument(
         ctx: PrefixedContext<State>,
         args: String,
-    ) -> DynFuture<'static, Result<(Self, String), ParsingError>> {
+    ) -> DynFuture<'static, Result<(Self, String), ArgumentError>> {
         Box::pin(async move {
             let (arg, remaining) = String::into_argument(ctx, args).await?;
             match arg.parse::<Self>() {
                 Ok(num) => Ok((num, remaining)),
-                Err(_) => Err(ParsingError::InvalidArgument),
+                Err(_) => Err(ArgumentError::Misformatted),
             }
         })
     }
@@ -558,12 +547,12 @@ where
     fn into_argument(
         ctx: PrefixedContext<State>,
         args: String,
-    ) -> DynFuture<'static, Result<(Self, String), ParsingError>> {
+    ) -> DynFuture<'static, Result<(Self, String), ArgumentError>> {
         Box::pin(async move {
             let (arg, remaining) = String::into_argument(ctx, args).await?;
             match arg.parse::<Self>() {
                 Ok(num) => Ok((num, remaining)),
-                Err(_) => Err(ParsingError::InvalidArgument),
+                Err(_) => Err(ArgumentError::Misformatted),
             }
         })
     }
@@ -576,12 +565,12 @@ where
     fn into_argument(
         ctx: PrefixedContext<State>,
         args: String,
-    ) -> DynFuture<'static, Result<(Self, String), ParsingError>> {
+    ) -> DynFuture<'static, Result<(Self, String), ArgumentError>> {
         Box::pin(async move {
             let (arg, remaining) = String::into_argument(ctx, args).await?;
             match arg.parse::<Self>() {
                 Ok(num) => Ok((num, remaining)),
-                Err(_) => Err(ParsingError::InvalidArgument),
+                Err(_) => Err(ArgumentError::Misformatted),
             }
         })
     }
@@ -594,12 +583,12 @@ where
     fn into_argument(
         ctx: PrefixedContext<State>,
         args: String,
-    ) -> DynFuture<'static, Result<(Self, String), ParsingError>> {
+    ) -> DynFuture<'static, Result<(Self, String), ArgumentError>> {
         Box::pin(async move {
             let (arg, remaining) = String::into_argument(ctx, args).await?;
             match arg.parse::<Self>() {
                 Ok(num) => Ok((num, remaining)),
-                Err(_) => Err(ParsingError::InvalidArgument),
+                Err(_) => Err(ArgumentError::Misformatted),
             }
         })
     }
@@ -612,12 +601,12 @@ where
     fn into_argument(
         ctx: PrefixedContext<State>,
         args: String,
-    ) -> DynFuture<'static, Result<(Self, String), ParsingError>> {
+    ) -> DynFuture<'static, Result<(Self, String), ArgumentError>> {
         Box::pin(async move {
             let (arg, remaining) = String::into_argument(ctx, args).await?;
             match arg.parse::<Self>() {
                 Ok(num) => Ok((num, remaining)),
-                Err(_) => Err(ParsingError::InvalidArgument),
+                Err(_) => Err(ArgumentError::Misformatted),
             }
         })
     }
@@ -630,12 +619,12 @@ where
     fn into_argument(
         ctx: PrefixedContext<State>,
         args: String,
-    ) -> DynFuture<'static, Result<(Self, String), ParsingError>> {
+    ) -> DynFuture<'static, Result<(Self, String), ArgumentError>> {
         Box::pin(async move {
             let (arg, remaining) = String::into_argument(ctx, args).await?;
             match arg.parse::<Self>() {
                 Ok(num) => Ok((num, remaining)),
-                Err(_) => Err(ParsingError::InvalidArgument),
+                Err(_) => Err(ArgumentError::Misformatted),
             }
         })
     }
@@ -648,12 +637,12 @@ where
     fn into_argument(
         ctx: PrefixedContext<State>,
         args: String,
-    ) -> DynFuture<'static, Result<(Self, String), ParsingError>> {
+    ) -> DynFuture<'static, Result<(Self, String), ArgumentError>> {
         Box::pin(async move {
             let (arg, remaining) = String::into_argument(ctx, args).await?;
             match arg.parse::<Self>() {
                 Ok(num) => Ok((num, remaining)),
-                Err(_) => Err(ParsingError::InvalidArgument),
+                Err(_) => Err(ArgumentError::Misformatted),
             }
         })
     }
@@ -666,12 +655,12 @@ where
     fn into_argument(
         ctx: PrefixedContext<State>,
         args: String,
-    ) -> DynFuture<'static, Result<(Self, String), ParsingError>> {
+    ) -> DynFuture<'static, Result<(Self, String), ArgumentError>> {
         Box::pin(async move {
             let (arg, remaining) = String::into_argument(ctx, args).await?;
             match arg.parse::<Self>() {
                 Ok(num) => Ok((num, remaining)),
-                Err(_) => Err(ParsingError::InvalidArgument),
+                Err(_) => Err(ArgumentError::Misformatted),
             }
         })
     }
@@ -684,12 +673,12 @@ where
     fn into_argument(
         ctx: PrefixedContext<State>,
         args: String,
-    ) -> DynFuture<'static, Result<(Self, String), ParsingError>> {
+    ) -> DynFuture<'static, Result<(Self, String), ArgumentError>> {
         Box::pin(async move {
             let (arg, remaining) = String::into_argument(ctx, args).await?;
             match arg.parse::<Self>() {
                 Ok(num) => Ok((num, remaining)),
-                Err(_) => Err(ParsingError::InvalidArgument),
+                Err(_) => Err(ArgumentError::Misformatted),
             }
         })
     }
@@ -702,12 +691,12 @@ where
     fn into_argument(
         ctx: PrefixedContext<State>,
         args: String,
-    ) -> DynFuture<'static, Result<(Self, String), ParsingError>> {
+    ) -> DynFuture<'static, Result<(Self, String), ArgumentError>> {
         Box::pin(async move {
             let (arg, remaining) = String::into_argument(ctx, args).await?;
             match arg.parse::<Self>() {
                 Ok(num) => Ok((num, remaining)),
-                Err(_) => Err(ParsingError::InvalidArgument),
+                Err(_) => Err(ArgumentError::Misformatted),
             }
         })
     }
@@ -720,12 +709,12 @@ where
     fn into_argument(
         ctx: PrefixedContext<State>,
         args: String,
-    ) -> DynFuture<'static, Result<(Self, String), ParsingError>> {
+    ) -> DynFuture<'static, Result<(Self, String), ArgumentError>> {
         Box::pin(async move {
             let (arg, remaining) = String::into_argument(ctx, args).await?;
             match arg.parse::<Self>() {
                 Ok(num) => Ok((num, remaining)),
-                Err(_) => Err(ParsingError::InvalidArgument),
+                Err(_) => Err(ArgumentError::Misformatted),
             }
         })
     }
@@ -738,13 +727,13 @@ where
     fn into_argument(
         ctx: PrefixedContext<State>,
         args: String,
-    ) -> DynFuture<'static, Result<(Self, String), ParsingError>> {
+    ) -> DynFuture<'static, Result<(Self, String), ArgumentError>> {
         Box::pin(async move {
             let (arg, remaining) = String::into_argument(ctx, args).await?;
             match arg.to_lowercase().as_str() {
                 "true" | "y" | "yes" | "1" | "on" => Ok((true, remaining)),
                 "false" | "n" | "no" | "0" | "off" => Ok((false, remaining)),
-                _ => Err(ParsingError::InvalidArgument),
+                _ => Err(ArgumentError::Misformatted),
             }
         })
     }
@@ -758,7 +747,7 @@ where
     fn into_argument(
         ctx: PrefixedContext<State>,
         args: String,
-    ) -> DynFuture<'static, Result<(Self, String), ParsingError>> {
+    ) -> DynFuture<'static, Result<(Self, String), ArgumentError>> {
         Box::pin(async move {
             match T::into_argument(ctx, args.clone()).await {
                 Ok((arg, remaining)) => Ok((Some(arg), remaining)),

@@ -26,6 +26,7 @@ use twilight_model::id::marker::ChannelMarker;
 use crate::aliases::DiscordClient;
 use crate::commands::CommandNode;
 use crate::commands::prefixed::prefixes::Prefixes;
+use crate::errors::ErrorHandlerWithoutType;
 use crate::state::StateBound;
 use crate::wrappers::actions::message_create::MessageCreate;
 
@@ -45,6 +46,9 @@ where
 
     /// The prefixes getter for the bot, if any.
     pub(crate) prefixes: Option<Arc<dyn Prefixes<State>>>,
+
+    /// The top-level error handler.
+    pub(crate) on_errors: Vec<Arc<dyn ErrorHandlerWithoutType<State>>>,
 }
 
 impl<State> Handle<State>

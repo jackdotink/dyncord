@@ -11,7 +11,11 @@ use crate::commands::slash::InvalidCommandError;
 use crate::commands::{
     self, CommandGroupIntoCommandNode, CommandIntoCommandNode, CommandNode, prefixed, slash,
 };
-use crate::events::{On, OnEvent};
+use crate::errors::{
+    self, DyncordError, ErrorContext, ErrorHandler, ErrorHandlerWithoutType, ErrorHandlerWrapper,
+    ErrorOriginalContext,
+};
+use crate::events::{EventContext, EventHandler, EventHandlerBuilder, On};
 use crate::handle::Handle;
 use crate::state::StateBound;
 
@@ -24,7 +28,7 @@ where
     commands: Vec<CommandNode<State>>,
 
     /// The list of event handlers the bot will execute when an event is received.
-    events: Vec<OnEvent<State>>,
+    on_events: Vec<EventHandler<State>>,
 
     /// The bot's state, which can be any type you want (`Send + Sync + Clone`).
     state: State,
@@ -37,6 +41,9 @@ where
 
     /// The bot's prefixes getter, or [`None`] if message commands are disabled.
     prefixes: Option<Arc<dyn Prefixes<State>>>,
+
+    /// Top-level error handlers.
+    on_errors: Vec<Arc<dyn ErrorHandlerWithoutType<State>>>,
 }
 
 impl Default for Bot<()> {
@@ -56,11 +63,12 @@ where
     pub fn new(state: State) -> Bot<State> {
         Bot {
             commands: Vec::new(),
-            events: Vec::new(),
+            on_events: Vec::new(),
             state,
             intents: Intents::empty(),
             shard: ShardId::ONE,
             prefixes: None,
+            on_errors: Vec::new(),
         }
     }
 
@@ -115,8 +123,8 @@ where
     ///
     /// Returns:
     /// [`Bot`] - The bot instance with the added event handler.
-    pub fn on_event(mut self, handler: OnEvent<State>) -> Self {
-        self.events.push(handler);
+    pub fn on_event(mut self, handler: EventHandlerBuilder<State>) -> Self {
+        self.on_events.push(handler.build());
         self
     }
 
@@ -153,8 +161,43 @@ where
     ///
     /// let bot = Bot::new(state).with_prefix(get_prefixes);
     /// ```
+    ///
+    /// Arguments:
+    /// * `prefixes` - The prefix, prefixes, or prefixes getter.
+    ///
+    /// Returns:
+    /// [`Bot`] - The current bot instance with the prefixes value set.
     pub fn with_prefix(mut self, prefixes: impl Prefixes<State> + 'static) -> Self {
         self.prefixes = Some(Arc::new(prefixes));
+        self
+    }
+
+    /// Adds a top-level error handler.
+    ///
+    /// This error handler will catch all errors that are either not catched by other error
+    /// handlers or when an error handler fails.
+    ///
+    /// Error handlers all follow the same signature:
+    ///
+    /// ```
+    /// async fn handle_error(ctx: ErrorContext<State>, error: DyncordError) {}
+    /// ```
+    ///
+    /// Arguments:
+    /// * `handler` - The error handler to add to the top-level error handlers.
+    ///
+    /// Returns:
+    /// [`Bot`] - The current bot instance with the top-level error handler added.
+    pub fn on_error<Dummy, Error>(
+        mut self,
+        handler: impl ErrorHandler<State, Dummy, Error> + 'static,
+    ) -> Self
+    where
+        Dummy: Send + Sync + 'static,
+        Error: Send + Sync + 'static,
+    {
+        self.on_errors
+            .push(Arc::new(ErrorHandlerWrapper::new(handler)));
         self
     }
 
@@ -176,6 +219,7 @@ where
             client,
             commands: Arc::new(self.commands.clone()),
             prefixes: self.prefixes.clone(),
+            on_errors: self.on_errors.clone(),
         }
     }
 
@@ -228,11 +272,36 @@ where
         }
 
         while let Some(Ok(event)) = gateway.next_event(EventTypeFlags::all()).await {
-            for handler in &*self.events {
-                if let Some(future) =
-                    handler.handle(handle.clone(), self.state.clone(), event.clone())
-                {
-                    tokio::spawn(future);
+            let ctx = EventContext {
+                event,
+                handle: handle.clone(),
+                state: self.state.clone(),
+            };
+
+            for handler in &*self.on_events {
+                let handler = handler.clone();
+
+                if handler.handler.check_type(&ctx.event) {
+                    let ctx = ctx.clone();
+
+                    tokio::spawn(async move {
+                        let result = handler.handler.handle(ctx.clone()).unwrap().await;
+
+                        if let Err(error) = result {
+                            let error_handlers =
+                                [handler.on_errors.clone(), ctx.handle.on_errors.clone()];
+
+                            let error_ctx = ErrorContext {
+                                event: ctx.event.clone(),
+                                state: ctx.state.clone(),
+                                handle: ctx.handle.clone(),
+                                original: ErrorOriginalContext::EventContext(Box::new(ctx)),
+                            };
+
+                            errors::handle(error_ctx, DyncordError::Event(error), &error_handlers)
+                                .await;
+                        }
+                    });
                 }
             }
         }

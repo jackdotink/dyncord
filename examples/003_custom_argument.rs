@@ -2,7 +2,8 @@ use std::env;
 
 use dyncord::Bot;
 use dyncord::commands::Command;
-use dyncord::commands::prefixed::arguments::{IntoArgument, ParsingError};
+use dyncord::commands::errors::ArgumentError;
+use dyncord::commands::prefixed::arguments::IntoArgument;
 use dyncord::commands::prefixed::context::PrefixedContext;
 use dyncord::utils::DynFuture;
 use twilight_gateway::Intents;
@@ -44,12 +45,12 @@ impl IntoArgument<()> for Name {
     fn into_argument(
         _ctx: PrefixedContext<()>,
         args: String,
-    ) -> DynFuture<'static, Result<(Self, String), ParsingError>> {
+    ) -> DynFuture<'static, Result<(Self, String), ArgumentError>> {
         Box::pin(async move {
             let mut parts = args.splitn(3, ' ').collect::<Vec<&str>>();
 
             if parts.len() < 2 {
-                return Err(ParsingError::InvalidArgument);
+                return Err(ArgumentError::Misformatted);
             }
 
             if parts.len() == 2 {

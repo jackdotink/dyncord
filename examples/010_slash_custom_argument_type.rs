@@ -2,7 +2,8 @@ use std::env;
 
 use dyncord::Bot;
 use dyncord::commands::Command;
-use dyncord::commands::slash::arguments::{Argument, ArgumentError, ArgumentType, IntoArgument};
+use dyncord::commands::errors::ArgumentError;
+use dyncord::commands::slash::arguments::{Argument, ArgumentType, IntoArgument};
 use dyncord::commands::slash::context::SlashContext;
 use dyncord::utils::{DynFuture, pinbox};
 use twilight_model::application::interaction::application_command::{
@@ -39,10 +40,10 @@ impl IntoArgument<()> for Name {
             if let CommandOptionValue::String(argument) = argument.value {
                 match argument.split_once(' ') {
                     Some((first, last)) => pinbox(Ok(Name(first.into(), last.into()))),
-                    None => pinbox(Err(ArgumentError::InvalidValue)),
+                    None => pinbox(Err(ArgumentError::Misformatted)),
                 }
             } else {
-                pinbox(Err(ArgumentError::IncorrectType))
+                pinbox(Err(ArgumentError::Misformatted))
             }
         } else {
             pinbox(Err(ArgumentError::Missing))

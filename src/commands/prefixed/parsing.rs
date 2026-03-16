@@ -1,3 +1,4 @@
+#[derive(Clone, Copy)]
 pub struct CommandParts<'a> {
     pub prefix: &'a str,
     pub command_name: &'a str,
