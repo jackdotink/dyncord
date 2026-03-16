@@ -150,6 +150,16 @@ async fn on_message(ctx: EventContext<(), MessageCreate>) {
 let bot = Bot::new(()).on_event(On::message_create(on_message));
 ```
 
+# Browsing the Docs
+
+Everything doable with dyncord is heavily documented in the docs. The best place to find how to do
+something is to look at the item's docs. If it doesn't say anything about it, check the docs of the
+module where the item is deifined. Go up a module until you find what you're looking for.
+
+As a quick start, check the documentation of the modules exported at the top level of this crate.
+They're the heaviest documented and will give you a good overview of the features provided by
+dyncord.
+
 # WIP
 
 Dyncord is a work in progress, extremely early in development, and certainly not ready for

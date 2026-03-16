@@ -29,18 +29,4 @@ where
             }
         }
     }
-
-    // ctx.handle
-    //     .client
-    //     .interaction(ctx.event.application_id)
-    //     .create_response(
-    //         ctx.event.id,
-    //         &ctx.event.token,
-    //         &InteractionResponse {
-    //             kind: InteractionResponseType::DeferredChannelMessageWithSource,
-    //             data: None,
-    //         },
-    //     )
-    //     .await
-    //     .unwrap();
 }
