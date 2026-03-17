@@ -110,9 +110,24 @@
 //! - `User` - A user mention.
 //! - `Role` - A role mention. Only works within servers.
 //! - `Channel` - A channel mention.
+//! - `UserMention` - A user mention.
+//! - `RoleMention` - A role mention.
+//! - `ChannelMention` - A channel mention.
 //! - `Option<T>` - An optional argument. If the argument fails to parse, it'll be considered
 //!   `None` instead of stopping the command's execution.
+//! 
+//! Mentionable Discord resources like `User` have a `*Mention` type, like `UserMention`. This is
+//! because Discord doesn't send the full resource's data with each message, so we have to fetch
+//! it from the Discord API every time.
+//! 
+//! This will be more efficient when caching comes to Dyncord, but querying the Discord API is
+//! slow and you don't always need the full resource's data anyways. In such cases, you can take
+//! the `*Mention` variant as an argument instead. It will not query the Discord API and your
+//! handler will only see the data that Discord made available for the resource with the message
+//! create event.
 //!
+//! ## Custom Arguments
+//! 
 //! Writing a custom argument type is also easy. You just need to implement [`IntoArgument`] for
 //! your type and add the parsing logic in the `into_argument` function.
 //!
