@@ -108,6 +108,7 @@
 //! - `String` - `Argument::string()`
 //! - `i8`, `i16`, `i32`, `i64`, `u8`, `u16`, `u32`, `u64` - `Argument::integer()`
 //! - `f32`, `f64` - `Argument::float()`
+//! - `bool` - `Argument::boolean()`
 //!
 //! Argument types are those types that implement [`IntoArgument`] (not to be confused with
 //! prefixed commands' [`IntoArgument`](crate::commands::prefixed::arguments::IntoArgument)).
