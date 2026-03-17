@@ -40,7 +40,7 @@ where
                     command: command.clone(),
                 };
 
-                let result = command.handler.run(command_ctx.clone()).await;
+                let result = command.run(command_ctx.clone()).await;
 
                 if let Err(error) = result {
                     let error_ctx = ErrorContext {

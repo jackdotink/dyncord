@@ -6,6 +6,8 @@
 //! - [`slash`] - Brand new slash commands. E.g. `/help`.
 //!
 //! Dyncord allows you to use both in the same bot, registration and routing is done automatically.
+//! 
+//! This module also has command type-indifferent modules, like [`errors`] and [`permissions`].
 //!
 //! # Prefixed Commands
 //!
@@ -158,6 +160,11 @@
 //! It has all the details you'll need to be able to create slash commands more in detail. For now,
 //! happy coding!
 
+pub mod errors;
+pub mod permissions;
+pub mod prefixed;
+pub mod slash;
+
 use crate::commands::errors::CommandError;
 use crate::commands::prefixed::{
     PrefixedCommand, PrefixedCommandBuilder, PrefixedCommandGroup, PrefixedCommandGroupBuilder,
@@ -168,10 +175,6 @@ use crate::commands::slash::{
     SlashCommandHandler,
 };
 use crate::state::StateBound;
-
-pub mod errors;
-pub mod prefixed;
-pub mod slash;
 
 /// Either a command or a command group.
 #[derive(Clone)]

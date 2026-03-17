@@ -1,6 +1,6 @@
 [package]
 name = "dyncord"
-version = "0.9.2"
+version = "0.10.0"
 edition = "2024"
 authors = ["Nyeki <hello@nyeki.dev>"]
 license = "MIT"
@@ -19,4 +19,5 @@ twilight-mention = "0.17.0"
 twilight-model = "0.17.1"
 
 [dev-dependencies]
+chrono = "0.4.44"
 tokio = { version = "1.50.0", features = ["full"] }

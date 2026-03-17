@@ -200,11 +200,13 @@ use std::marker::PhantomData;
 use std::sync::Arc;
 
 use thiserror::Error;
+use twilight_gateway::Event;
 use twilight_model::application::command::{Command, CommandType};
 use twilight_model::application::interaction::application_command::CommandDataOption;
 use twilight_model::id::Id;
 
-use crate::commands::errors::ArgumentError;
+use crate::commands::errors::{ArgumentError, CommandError};
+use crate::commands::permissions::{PermissionChecker, PermissionContext};
 use crate::commands::slash::arguments::{ArgumentMeta, ArgumentType, IntoArgument};
 use crate::commands::slash::context::SlashContext;
 use crate::commands::{CommandGroupIntoCommandNode, CommandNode, CommandResult};
@@ -229,6 +231,40 @@ where
     arguments: Vec<ArgumentMeta>,
 
     on_errors: Vec<Arc<dyn ErrorHandlerWithoutType<State>>>,
+
+    checks: Vec<Arc<dyn PermissionChecker<State>>>,
+}
+
+impl<State> SlashCommand<State>
+where
+    State: StateBound,
+{
+    /// Runs the command handler.
+    ///
+    /// This function checks for permissions before running the command.
+    ///
+    /// Arguments:
+    /// * `ctx` - The context of the command.
+    ///
+    /// Returns:
+    /// [`Result<(), CommandError>`] - Nothing, or an error if an error was raised when running the
+    /// command.
+    pub(crate) async fn run(&self, ctx: SlashContext<State>) -> CommandResult {
+        let permission_ctx = PermissionContext {
+            event: Event::InteractionCreate(Box::new(ctx.event.clone())),
+            handle: ctx.handle.clone(),
+            state: ctx.state.clone(),
+        };
+
+        for checker in &self.checks {
+            checker
+                .check(permission_ctx.clone())
+                .await
+                .map_err(CommandError::Permissions)?;
+        }
+
+        self.handler.run(ctx).await
+    }
 }
 
 impl<State> From<SlashCommand<State>> for Command
@@ -273,6 +309,8 @@ where
     arguments: Vec<ArgumentMeta>,
 
     on_errors: Vec<Arc<dyn ErrorHandlerWithoutType<State>>>,
+
+    checks: Vec<Arc<dyn PermissionChecker<State>>>,
 }
 
 impl<State> SlashCommandBuilder<State>
@@ -294,6 +332,7 @@ where
             handler: Arc::new(SlashCommandHandlerWrapper::new(handler)),
             arguments: vec![],
             on_errors: vec![],
+            checks: vec![],
         }
     }
 
@@ -357,6 +396,20 @@ where
         self
     }
 
+    /// Adds a permission checker to the slash command.
+    ///
+    /// Permissions are checked for in the order the checkers are added to the command.
+    ///
+    /// Arguments:
+    /// * `checker` - The permission checker function.
+    ///
+    /// Returns:
+    /// [`SlashCommandBuilder`] - The current builder with the permission checker added.
+    pub fn check(mut self, checker: impl PermissionChecker<State> + 'static) -> Self {
+        self.checks.push(Arc::new(checker));
+        self
+    }
+
     pub(crate) fn build(self) -> SlashCommand<State> {
         SlashCommand {
             name: self.name,
@@ -366,6 +419,7 @@ where
             handler: self.handler,
             arguments: self.arguments,
             on_errors: self.on_errors,
+            checks: self.checks,
         }
     }
 }
@@ -823,7 +877,7 @@ pub enum InvalidCommandError {
     TooManyArguments(String),
 
     /// The arguments defined in the handler function and the arguments defined in the command metadata did not match.
-    /// 
+    ///
     /// The first item is the command's name. The second and third are tuple of the argument type and whether the argument is optional.
     #[error(
         "The command /{0} has invalid arguments passed as metadata. The handler function defines an argument of type {1:?}, but the metadata you set defines an argument of type {2:?}. This will always fail to parse. Correct the command's metadata, or change your handler's signature."

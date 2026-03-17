@@ -20,12 +20,17 @@
 use std::error::Error;
 use std::sync::Arc;
 
+use crate::commands::permissions::PermissionError;
+
 /// An error that occurred when a command was called.
 #[derive(Debug, thiserror::Error, Clone)]
 pub enum CommandError {
     /// An error occurred while parsing a command's arguments.
     #[error("An error occurred while parsing a command's arguments: {0}")]
     Arguments(#[from] ArgumentError),
+
+    #[error("An error occurred while checking for a command's permissions: {0}")]
+    Permissions(PermissionError),
 
     /// An error occurred while running a command.
     ///

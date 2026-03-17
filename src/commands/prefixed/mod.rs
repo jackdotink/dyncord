@@ -115,11 +115,11 @@
 //! - `ChannelMention` - A channel mention.
 //! - `Option<T>` - An optional argument. If the argument fails to parse, it'll be considered
 //!   `None` instead of stopping the command's execution.
-//! 
+//!
 //! Mentionable Discord resources like `User` have a `*Mention` type, like `UserMention`. This is
 //! because Discord doesn't send the full resource's data with each message, so we have to fetch
 //! it from the Discord API every time.
-//! 
+//!
 //! This will be more efficient when caching comes to Dyncord, but querying the Discord API is
 //! slow and you don't always need the full resource's data anyways. In such cases, you can take
 //! the `*Mention` variant as an argument instead. It will not query the Discord API and your
@@ -127,7 +127,7 @@
 //! create event.
 //!
 //! ## Custom Arguments
-//! 
+//!
 //! Writing a custom argument type is also easy. You just need to implement [`IntoArgument`] for
 //! your type and add the parsing logic in the `into_argument` function.
 //!
@@ -229,7 +229,10 @@ use std::future::Future;
 use std::marker::PhantomData;
 use std::sync::Arc;
 
+use twilight_gateway::Event;
+
 use crate::commands::errors::CommandError;
+use crate::commands::permissions::{PermissionChecker, PermissionContext};
 use crate::commands::prefixed::arguments::IntoArgument;
 use crate::commands::prefixed::context::PrefixedContext;
 use crate::commands::{CommandGroupIntoCommandNode, CommandNode, CommandResult};
@@ -302,6 +305,9 @@ where
 
     /// The command-specific error handlers.
     pub(crate) on_errors: Vec<Arc<dyn ErrorHandlerWithoutType<State>>>,
+
+    /// The command-specific permission checkers.
+    pub(crate) checks: Vec<Arc<dyn PermissionChecker<State>>>,
 }
 
 impl<State> PrefixedCommand<State>
@@ -347,6 +353,8 @@ where
     }
 
     /// Runs the command handler.
+    /// 
+    /// This function checks for permissions before running the command.
     ///
     /// Arguments:
     /// * `ctx` - The context of the command, which contains information about the message,
@@ -358,6 +366,16 @@ where
     /// [`Result<(), CommandError>`] - Nothing, or an error if an error was raised when running the
     /// command.
     pub(crate) async fn run(&self, ctx: PrefixedContext<State>, args: &str) -> CommandResult {
+        let permission_ctx = PermissionContext {
+            event: Event::MessageCreate(Box::new(ctx.event.clone())),
+            handle: ctx.handle.clone(),
+            state: ctx.state.clone(),
+        };
+        
+        for checker in &self.checks {
+            checker.check(permission_ctx.clone()).await.map_err(CommandError::Permissions)?;
+        }
+        
         self.handler.run(ctx, args).await
     }
 }
@@ -374,6 +392,7 @@ where
     description: Option<String>,
     handler: Arc<dyn PrefixedCommandHandlerWithoutArgs<State>>,
     on_errors: Vec<Arc<dyn ErrorHandlerWithoutType<State>>>,
+    checks: Vec<Arc<dyn PermissionChecker<State>>>,
 }
 
 impl<State> PrefixedCommandBuilder<State>
@@ -402,6 +421,7 @@ where
             description: None,
             handler: Arc::new(wrapper),
             on_errors: Vec::new(),
+            checks: Vec::new(),
         }
     }
 
@@ -460,6 +480,23 @@ where
         self
     }
 
+    /// Adds a permission checker to this command's permission checkers list.
+    /// 
+    /// Permission checkers will be run in the order they're added to this command.
+    /// 
+    /// Arguments:
+    /// * `handler` - The permission checker function.
+    /// 
+    /// Returns:
+    /// [`PrefixedCommandBuilder`] - The command builder with the permission checker set.
+    pub fn check<F>(mut self, handler: F) -> Self
+    where
+        F: PermissionChecker<State> + 'static,
+    {
+        self.checks.push(Arc::new(handler));
+        self
+    }
+
     /// Builds the command, consuming the builder and returning a [`Command`] with the set fields.
     ///
     /// Returns:
@@ -472,6 +509,7 @@ where
             description: self.description,
             handler: self.handler,
             on_errors: self.on_errors,
+            checks: self.checks,
         }
     }
 }

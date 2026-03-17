@@ -384,10 +384,10 @@
 //!     Ok(())
 //! }
 //! ```
-//! 
+//!
 //! However, that's ugly. That's why you can use [`ErrorContext::send`] instead, which is similar
 //! to the example above but cleaner.
-//! 
+//!
 //! ```
 //! async fn on_error_notify_user(ctx: ErrorContext, _error: DyncordError) -> Result<(), ErrorHandlerError> {
 //!     ctx.send("Oh no! An error occurred.").await?;
@@ -395,11 +395,11 @@
 //!     Ok(())
 //! }
 //! ```
-//! 
+//!
 //! [`ErrorContext::send`] is the same as [`PrefixedContext::send`] when the error was returned by
 //! a prefixed-command handler, and the same as [`SlashContext::respond`] when the error was
 //! returned by a slash-command handler.
-//! 
+//!
 //! The only difference with the first example matching on `ctx.original` is that when the message
 //! is not sent, it doesn't return [`ErrorHandlerError::NotHandled`], rather `Ok(false)`.
 
@@ -462,6 +462,7 @@ impl DyncordError {
                         None
                     }
                 }
+                CommandError::Permissions(error) => error.downcast_ref(),
                 CommandError::Runtime(error) => error.downcast_ref(),
             },
             DyncordError::Event(error) => error.downcast_ref(),
@@ -494,15 +495,15 @@ where
     State: StateBound,
 {
     /// Sends a message to the current channel if the error was raised by a command.
-    /// 
+    ///
     /// - For prefixed commands, this is equivalent to [`PrefixedContext::send`].
     /// - For slash commands, this is equivalent to [`SlashContext::respond`].
-    /// 
+    ///
     /// For non-command-returned errors, this is a no-op.
-    /// 
+    ///
     /// Arguments:
     /// * `message` - The message to send.
-    /// 
+    ///
     /// Returns:
     /// * `Ok(true)` - If the message was successfully sent.
     /// * `Ok(false)` - If the message wasn't sent because the error was non-command-returned.
