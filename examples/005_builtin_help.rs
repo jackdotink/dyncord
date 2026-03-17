@@ -11,7 +11,7 @@ async fn main() {
         .with_prefix("!")
         .intents(Intents::GUILD_MESSAGES)
         .intents(Intents::MESSAGE_CONTENT)
-        .command(Command::prefixed("help", builtin::help_command))
+        .command(Command::prefixed("help", builtin::help::help_command))
         .command(Command::prefixed("hello", dummy_command).summary("Says hi back."))
         .nest(
             CommandGroup::prefixed("Admin")
