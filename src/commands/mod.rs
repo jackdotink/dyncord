@@ -1,13 +1,21 @@
 //! Dyncord prefixed and slash commands.
 //!
-//! This module is divided into two sub-modules, [`prefixed`] and [`slash`].
+//! This module is divided into three command sub-modules, [`prefixed`], [`slash`], and
+//! [`message`].
 //!
 //! - [`prefixed`] - Good old prefixed commands. E.g. `!help`.
 //! - [`slash`] - Brand new slash commands. E.g. `/help`.
+//! - [`message`] - Message commands. E.g. right click on a message > Apps > Help.
 //!
 //! Dyncord allows you to use both in the same bot, registration and routing is done automatically.
-//! 
+//!
 //! This module also has command type-indifferent modules, like [`errors`] and [`permissions`].
+//! Check their documentation out to learn about error types and permission checking.
+//! 
+//! The sections below are quick starts. Read the command type-specific submodule to learn about
+//! the details of each command type and their supported features. Command type-indifferent modules
+//! like [`errors`] and [`permissions`] aren't documented in command type-specific modules, so
+//! check each of them's documentation to learn about those features.
 //!
 //! # Prefixed Commands
 //!
@@ -159,13 +167,90 @@
 //! documentation on how to implement them, check out the [`slash` module's documentation](slash).
 //! It has all the details you'll need to be able to create slash commands more in detail. For now,
 //! happy coding!
+//! 
+//! # Message Commands
+//! 
+//! Message commands are one of the simplest command types there are to work with in Discord.
+//! They're shown as an option of a message's context menu<sup>1</sup>, don't require a
+//! description, and don't take arguments other than the message they were called on.
+//! 
+//! > <sup>1</sup> Context menus are the pop-ups that appear with multiple options when you right
+//! > click on a message on desktop, or when you press and hold a message on mobile. [Click here
+//! > to see a screenshot of one](https://files.catbox.moe/5azefu.png).
+//! 
+//! Message commands, like all the other command types, are handled with an asynchronous function.
+//! However, message command handlers don't take custom arguments. All message command handlers
+//! must look like follows:
+//! 
+//! ```
+//! async fn handle_message_command(ctx: MessageContext, message: Message) {}
+//! ```
+//! 
+//! No custom arguments; Any handler signature that doesn't take those arguments that won't
+//! compile.
+//! 
+//! To register a message command on your bot, call [`Bot::command`](crate::Bot::command) on your
+//! bot. In essence,
+//! 
+//! ```
+//! let bot = Bot::new(()).command(Command::message("Name", handle_message_command));
+//! ``` 
+//! 
+//! Running the bot will automatically register your command and route to it when it gets called.
+//! 
+//! Like slash commands, you have to respond to the user interaction for Discord not to show an
+//! error to the user when running your command. That's done with the
+//! [`MessageContext`](message::context::MessageContext) argument your command handler takes.
+//! 
+//! [`MessageContext`](message::context::MessageContext) has two associated functions you can use
+//! when responding to a command,
+//! [`MessageContext::respond`](message::context::MessageContext::respond) and
+//! [`MessageContext::respond`](message::context::MessageContext::defer).
+//! 
+//! - [`MessageContext::respond`](message::context::MessageContext::respond): Responds to the
+//!   command call with a message. The most direct when your command does something quick.
+//! - [`MessageContext::defer`](message::context::MessageContext::defer): Defers the response and
+//!   shows a loading message to the user while you do some slower work. Call
+//!   [`MessageContext::respond`](message::context::MessageContext::respond) when you're done doing
+//!   the slower work.
+//! 
+//! For example,
+//! 
+//! ```
+//! async fn handle_quick(ctx: MessageContext, message: Message) -> Result<(), TwilightError> {
+//!     ctx.respond("Hey there!").await?;
+//! 
+//!     Ok(())
+//! }
+//! 
+//! async fn handle_slow(ctx: MessageContext, message: Message) -> Result<(), TwilightError> {
+//!     ctx.defer().await?;
+//! 
+//!     tokio::time::sleep(Duration::from_secs(3)).await;
+//! 
+//!     ctx.respond("Hey there!").await?;
+//! 
+//!     Ok(())
+//! }
+//! ```
+//! 
+//! This is only a short introduction to building message commands with Dyncord. For a more
+//! extensive documentation on how to implement them, check out the
+//! [`message` module's documentation](message). It has all the details you'll need to be able to
+//! create message commands more in detail. For now, happy coding!
 
 pub mod errors;
+pub mod message;
 pub mod permissions;
 pub mod prefixed;
+pub(crate) mod registration;
 pub mod slash;
 
 use crate::commands::errors::CommandError;
+use crate::commands::message::{
+    MessageCommand, MessageCommandBuilder, MessageCommandGroup, MessageCommandGroupBuilder,
+    MessageCommandHandler,
+};
 use crate::commands::prefixed::{
     PrefixedCommand, PrefixedCommandBuilder, PrefixedCommandGroup, PrefixedCommandGroupBuilder,
     PrefixedCommandHandler,
@@ -186,9 +271,11 @@ where
     PrefixedCommandGroup(PrefixedCommandGroup<State>),
     SlashCommand(SlashCommand<State>),
     SlashCommandGroup(SlashCommandGroup<State>),
+    MessageCommand(MessageCommand<State>),
+    MessageCommandGroup(MessageCommandGroup<State>),
 }
 
-/// Converts all command types (slash, prefixed) and their builder types into [`CommandNode`]s.
+/// Converts all command types and their builder types into [`CommandNode`]s.
 pub trait CommandIntoCommandNode<State>
 where
     State: StateBound,
@@ -236,6 +323,24 @@ where
     }
 }
 
+impl<State> CommandIntoCommandNode<State> for MessageCommand<State>
+where
+    State: StateBound,
+{
+    fn into_command_node(self) -> CommandNode<State> {
+        CommandNode::MessageCommand(self)
+    }
+}
+
+impl<State> CommandIntoCommandNode<State> for MessageCommandBuilder<State>
+where
+    State: StateBound,
+{
+    fn into_command_node(self) -> CommandNode<State> {
+        CommandNode::MessageCommand(self.build())
+    }
+}
+
 /// A unified API to build commands.
 ///
 /// This type's associated functions initialize specialized command types depending on what type is
@@ -279,6 +384,22 @@ impl Command {
     {
         SlashCommandBuilder::new(name.into(), handler)
     }
+
+    /// Creates a new message command builder with the given name and handler.
+    ///
+    /// Arguments:
+    /// * `name` - The command's name, shown to the user.
+    /// * `handler` - The command's handler, the function that executes when the command is run.
+    ///
+    /// Returns:
+    /// [`MessageCommandBuilder`] - A new message command builder with the given name.
+    pub fn message<State, F>(name: impl Into<String>, handler: F) -> MessageCommandBuilder<State>
+    where
+        F: MessageCommandHandler<State> + 'static,
+        State: StateBound,
+    {
+        MessageCommandBuilder::new(name.into(), handler)
+    }
 }
 
 /// A unified API to build command groups.
@@ -315,9 +436,23 @@ impl CommandGroup {
     {
         SlashCommandGroupBuilder::new(name)
     }
+
+    /// Intializes a message command group builder.
+    ///
+    /// Arguments:
+    /// * `name` - The command group's name.
+    ///
+    /// Returns:
+    /// [`MessageCommandGroupBuilder`] - A new message command group builder.
+    pub fn message<State>(name: impl Into<String>) -> MessageCommandGroupBuilder<State>
+    where
+        State: StateBound,
+    {
+        MessageCommandGroupBuilder::new(name)
+    }
 }
 
-/// Converts all command group types (slash, prefixed) and their builder types into a command node.
+/// Converts all command group types and their builder types into a command node.
 pub trait CommandGroupIntoCommandNode<State>
 where
     State: StateBound,
@@ -381,6 +516,32 @@ where
     commands
 }
 
+/// Flattens a [`CommandNode`] tree into a list of [`MessageCommand`]s.
+///
+/// Arguments:
+/// * `nodes` - The nodes to flatten, which is a list of commands and command groups.
+///
+/// Returns:
+/// [`Vec<MessageCommand>`] - A list of all the commands in the tree.
+pub fn flatten_message<State>(nodes: &[CommandNode<State>]) -> Vec<&MessageCommand<State>>
+where
+    State: StateBound,
+{
+    let mut commands = Vec::new();
+
+    for node in nodes {
+        match node {
+            CommandNode::MessageCommand(command) => commands.push(command),
+            CommandNode::MessageCommandGroup(group) => {
+                commands.extend(flatten_message(&group.children))
+            }
+            _ => {}
+        }
+    }
+
+    commands
+}
+
 /// Returns all the prefixed commands in a list of [`CommandNode`]s.
 ///
 /// Sub-commands inside command groups are not returned.
@@ -414,7 +575,7 @@ where
 /// * `nodes` - The nodes to get the commands from, which is a list of commands and command groups.
 ///
 /// Returns:
-/// [`Vec<SlashCommand>`] - A list of all the prefixed commands in the list of nodes, excluding
+/// [`Vec<SlashCommand>`] - A list of all the slash commands in the list of nodes, excluding
 /// sub-commands in command groups.
 pub fn get_slash_commands<State>(nodes: &[CommandNode<State>]) -> Vec<&SlashCommand<State>>
 where
@@ -424,6 +585,31 @@ where
 
     for node in nodes {
         if let CommandNode::SlashCommand(command) = node {
+            commands.push(command);
+        }
+    }
+
+    commands
+}
+
+/// Returns all the message commands in a list of [`CommandNode`]s.
+///
+/// Sub-commands inside command groups are not returned.
+///
+/// Arguments:
+/// * `nodes` - The nodes to get the commands from, which is a list of commands and command groups.
+///
+/// Returns:
+/// [`Vec<MessageCommand>`] - A list of all the message commands in the list of nodes, excluding
+/// sub-commands in command groups.
+pub fn get_message_commands<State>(nodes: &[CommandNode<State>]) -> Vec<&MessageCommand<State>>
+where
+    State: StateBound,
+{
+    let mut commands = Vec::new();
+
+    for node in nodes {
+        if let CommandNode::MessageCommand(command) = node {
             commands.push(command);
         }
     }
@@ -466,7 +652,7 @@ where
 ///   groups.
 ///
 /// Returns:
-/// [`Vec<SlashCommandGroup>`] - A list of all the command groups in the list of nodes,
+/// [`Vec<SlashCommandGroup>`] - A list of all the slash command groups in the list of nodes,
 /// excluding sub-groups in command groups.
 pub fn get_slash_groups<State>(nodes: &[CommandNode<State>]) -> Vec<&SlashCommandGroup<State>>
 where
@@ -476,6 +662,32 @@ where
 
     for node in nodes {
         if let CommandNode::SlashCommandGroup(group) = node {
+            groups.push(group);
+        }
+    }
+
+    groups
+}
+
+/// Returns all the message command groups in a list of [`CommandNode`]s.
+///
+/// Sub-groups inside command groups are not returned.
+///
+/// Arguments:
+/// * `nodes` - The nodes to get the command groups from, which is a list of commands and command
+///   groups.
+///
+/// Returns:
+/// [`Vec<MessageCommandGroup>`] - A list of all the message command groups in the list of nodes,
+/// excluding sub-groups in command groups.
+pub fn get_message_groups<State>(nodes: &[CommandNode<State>]) -> Vec<&MessageCommandGroup<State>>
+where
+    State: StateBound,
+{
+    let mut groups = Vec::new();
+
+    for node in nodes {
+        if let CommandNode::MessageCommandGroup(group) = node {
             groups.push(group);
         }
     }

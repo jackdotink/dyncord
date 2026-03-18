@@ -361,8 +361,8 @@
 //! # Original Error Contexts
 //!
 //! Many times, you want to let the user know an error happened. However, [`ErrorContext`] is
-//! neither [`PrefixedContext`] nor [`SlashContext`], so you can't directly tell the user an error
-//! occurred.
+//! neither [`PrefixedContext`] nor [`SlashContext`] nor any command type-specific context type, so
+//! you can't directly tell the user an error occurred.
 //!
 //! [`ErrorContext`] has an [`original`](ErrorContext::original) field that holds the original
 //! context type. You could match against it to tell the user an error occurred.
@@ -397,8 +397,9 @@
 //! ```
 //!
 //! [`ErrorContext::send`] is the same as [`PrefixedContext::send`] when the error was returned by
-//! a prefixed-command handler, and the same as [`SlashContext::respond`] when the error was
-//! returned by a slash-command handler.
+//! a prefixed-command handler, the same as [`SlashContext::respond`] when the error was returned
+//! by a slash-command handler, and the same as [`MessageContext::respond`] when the error was
+//! returned by a message command.
 //!
 //! The only difference with the first example matching on `ctx.original` is that when the message
 //! is not sent, it doesn't return [`ErrorHandlerError::NotHandled`], rather `Ok(false)`.
@@ -411,6 +412,7 @@ use std::sync::Arc;
 use twilight_gateway::Event;
 
 use crate::commands::errors::{ArgumentError, CommandError};
+use crate::commands::message::context::MessageContext;
 use crate::commands::prefixed::context::PrefixedContext;
 use crate::commands::prefixed::prefixes::PrefixesContext;
 use crate::commands::slash::context::SlashContext;
@@ -520,6 +522,9 @@ where
             ErrorOriginalContext::SlashContext(ctx) => {
                 ctx.respond(message).await.map_err(ErrorHandlerError::new)?;
             }
+            ErrorOriginalContext::MessageContext(ctx) => {
+                ctx.respond(message).await.map_err(ErrorHandlerError::new)?;
+            }
             _ => return Ok(false),
         };
 
@@ -541,6 +546,9 @@ where
 
     /// The error occurred when a slash command was called.
     SlashContext(Box<SlashContext<State>>),
+
+    /// The error occurred when a message command was called.
+    MessageContext(Box<MessageContext<State>>),
 
     /// The error occurred while handling an event.
     ///

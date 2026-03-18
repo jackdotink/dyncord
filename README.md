@@ -167,6 +167,7 @@ Some important topics that are covered are:
   use them.
   - [Slash Commands](crate::commands::slash) - All about slash commands.
   - [Prefixed Commands](crate::commands::prefixed) - All about prefixed commands.
+  - [Message Commands](crate::commands::message) - All about message commands.
   - [Permissions](crate::commands::permissions) - Permission checking and handling.
 - [Events](crate::events) - How to handle events, the different types of events, and how to use
   them.

@@ -192,7 +192,6 @@
 
 pub mod arguments;
 pub mod context;
-pub(crate) mod registration;
 pub(crate) mod routing;
 
 use std::collections::HashMap;
@@ -336,6 +335,19 @@ where
         }
     }
 
+    /// Sets a translation for the command's name.
+    ///
+    /// Arguments:
+    /// * `lang` - The language code of the translation.
+    /// * `name` - The command's translated name.
+    ///
+    /// Returns:
+    /// [`SlashCommandBuilder`] - Self with the name translation set.
+    pub fn name_i18n(mut self, lang: impl Into<String>, name: impl Into<String>) -> Self {
+        self.name_i18n.insert(lang.into(), name.into());
+        self
+    }
+
     /// Sets the default description of the command.
     ///
     /// Arguments:
@@ -345,6 +357,24 @@ where
     /// [`SlashCommandBuilder`] - Self with the description set.
     pub fn description(mut self, description: impl Into<String>) -> Self {
         self.description = description.into();
+        self
+    }
+
+    /// Sets a translation for the command's description.
+    ///
+    /// Arguments:
+    /// * `lang` - The language code of the translation.
+    /// * `description` - The command's translated description.
+    ///
+    /// Returns:
+    /// [`SlashCommandBuilder`] - Self with the description translation set.
+    pub fn description_i18n(
+        mut self,
+        lang: impl Into<String>,
+        description: impl Into<String>,
+    ) -> Self {
+        self.description_i18n
+            .insert(lang.into(), description.into());
         self
     }
 

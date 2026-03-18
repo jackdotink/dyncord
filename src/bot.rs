@@ -10,7 +10,8 @@ use crate::cache::{self, Cache};
 use crate::commands::prefixed::prefixes::Prefixes;
 use crate::commands::slash::InvalidCommandError;
 use crate::commands::{
-    self, CommandGroupIntoCommandNode, CommandIntoCommandNode, CommandNode, prefixed, slash,
+    self, CommandGroupIntoCommandNode, CommandIntoCommandNode, CommandNode, message, prefixed,
+    slash,
 };
 use crate::errors::{
     self, DyncordError, ErrorContext, ErrorHandler, ErrorHandlerWithoutType, ErrorHandlerWrapper,
@@ -263,10 +264,15 @@ where
 
         if !self.commands.is_empty() {
             let mut has_slash_commands = false;
+            let mut has_message_commands = false;
             let mut has_prefixed_commands = false;
 
             if !commands::flatten_slash(&self.commands).is_empty() {
                 has_slash_commands = true;
+            }
+
+            if !commands::flatten_message(&self.commands).is_empty() {
+                has_message_commands = true;
             }
 
             if !commands::flatten_prefixed(&self.commands).is_empty() {
@@ -283,9 +289,16 @@ where
                 slash::validate_commands(&commands::flatten_slash(&self.commands))
                     .map_err(RunningError::InvalidSlashCommands)?;
 
-                self = self.on_event(On::ready(slash::registration::register));
                 self = self.on_event(On::interaction_create(slash::routing::route_slash_command));
             }
+
+            if has_message_commands {
+                self = self.on_event(On::interaction_create(
+                    message::routing::route_message_command,
+                ));
+            }
+
+            self = self.on_event(On::ready(commands::registration::register));
         }
 
         while let Some(Ok(event)) = gateway.next_event(EventTypeFlags::all()).await {

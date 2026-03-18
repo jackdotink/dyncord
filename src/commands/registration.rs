@@ -4,11 +4,11 @@ use crate::commands;
 use crate::events::{EventContext, Ready};
 use crate::state::StateBound;
 
-/// Registers slash commands and slash command groups into the Discord API.
+/// Registers interaction-based commands and command groups into the Discord API.
 ///
 /// Arguments:
 /// * `client` - The Discord client to register the commands with.
-/// * `nodes` - A slice of slash commands and command groups to register.
+/// * `nodes` - A slice of interaction-based commands and command groups to register.
 pub async fn register<State>(ctx: EventContext<State, Ready>)
 where
     State: StateBound,
@@ -18,6 +18,13 @@ where
     let mut to_register: Vec<Command> = vec![];
 
     for command in commands::flatten_slash(&ctx.handle.commands)
+        .into_iter()
+        .cloned()
+    {
+        to_register.push(command.into());
+    }
+
+    for command in commands::flatten_message(&ctx.handle.commands)
         .into_iter()
         .cloned()
     {

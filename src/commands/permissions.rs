@@ -6,8 +6,8 @@
 //!
 //! # Quick Start
 //!
-//! > Note: This example uses prefixed commands, but the same code is valid for slash commands.
-//! >       Permission checks are command type-indifferent.
+//! > Note: This example uses prefixed commands, but the same code is valid for other command
+//! >       types. Permission checks are command type-indifferent.
 //!
 //! Let's simulate we're making a gardening bot. Our bot will be simple, it'll have a `water`
 //! command to water our plants. Plants must not be watered at night, though, since it attracts
