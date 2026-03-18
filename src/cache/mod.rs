@@ -151,7 +151,6 @@
 //! ```
 
 use std::error::Error;
-use std::sync::Arc;
 
 use twilight_gateway::Event;
 use twilight_model::gateway::presence::UserOrId;
