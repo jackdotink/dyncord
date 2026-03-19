@@ -24,9 +24,15 @@ where
     pub event: MessageCreate,
 }
 
+/// The result type all prefix getter function results get normalized to.
 pub type PrefixesResult = Result<Vec<String>, Arc<dyn Error + Send + Sync>>;
 
+/// Normalizes a prefix getter function result into [`PrefixesResult`].
 pub trait IntoPrefixesResult {
+    /// Normalizes a prefix getter function result into [`PrefixesResult`].
+    ///
+    /// Returns:
+    /// [`PrefixesResult`] - The normalized result.
     fn into_prefixes_result(self) -> PrefixesResult;
 }
 
