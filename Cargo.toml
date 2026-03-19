@@ -12,6 +12,12 @@ description = "A high-level, ergonomic, batteries-included Discord bot library f
 bitcode = { version = "0.6.9", optional = true }
 num = "0.4.3"
 papaya = { version = "0.2.3", optional = true }
+redis = { version = "1.0.5", features = [
+    "tokio-comp",
+    "aio",
+    "cluster-async",
+    "connection-manager",
+], optional = true }
 rustls = "0.23.37"
 serde = { version = "1.0.228", optional = true }
 thiserror = "2.0.18"
@@ -33,6 +39,7 @@ chrono = "0.4.44"
 tokio = { version = "1.50.0", features = ["full"] }
 
 [features]
-cache-bitcode = ["dep:bitcode"]
 cache-serde = ["dep:serde"]
+cache-bitcode = ["dep:bitcode"]
+builtin-cache-redis = ["dep:redis", "cache-bitcode"]
 builtin-cache-inmemory = ["dep:papaya"]
