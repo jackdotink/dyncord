@@ -468,6 +468,7 @@ impl DyncordError {
                     }
                 }
                 CommandError::Permissions(error) => error.downcast_ref(),
+                CommandError::Prefixes(error) => error.downcast_ref(),
                 CommandError::Runtime(error) => error.downcast_ref(),
             },
             DyncordError::Event(error) => error.downcast_ref(),

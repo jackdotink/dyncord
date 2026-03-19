@@ -4,6 +4,7 @@ use twilight_gateway::Event;
 use twilight_model::gateway::payload::incoming::MessageCreate;
 
 use crate::commands::CommandNode;
+use crate::commands::errors::CommandError;
 use crate::commands::prefixed::context::PrefixedContext;
 use crate::commands::prefixed::parsing::{self, CommandParts};
 use crate::commands::prefixed::prefixes::PrefixesContext;
@@ -23,12 +24,31 @@ where
     State: StateBound,
 {
     if let Some(prefixes) = &event_ctx.handle.prefixes {
-        let prefixes_context = PrefixesContext {
+        let prefixes_ctx = PrefixesContext {
             state: event_ctx.state.clone(),
             event: event_ctx.event.clone(),
         };
 
-        let prefixes = prefixes.get(prefixes_context).await;
+        let prefixes = match prefixes.get(prefixes_ctx.clone()).await {
+            Ok(prefixes) => prefixes,
+            Err(error) => {
+                let error_ctx = ErrorContext {
+                    event: Event::MessageCreate(Box::new(event_ctx.event)),
+                    handle: event_ctx.handle.clone(),
+                    state: event_ctx.state,
+                    original: ErrorOriginalContext::PrefixesContext(Box::new(prefixes_ctx)),
+                };
+
+                errors::handle(
+                    error_ctx,
+                    DyncordError::Command(CommandError::Prefixes(error)),
+                    &[event_ctx.handle.on_errors],
+                )
+                .await;
+
+                return;
+            }
+        };
 
         'prefixes: for prefix in prefixes {
             let Some(parts) = parsing::parse(&prefix, &event_ctx.event.content) else {

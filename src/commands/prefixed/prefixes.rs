@@ -1,5 +1,7 @@
+use std::error::Error;
 use std::future::Future;
 use std::pin::Pin;
+use std::sync::Arc;
 
 use twilight_model::gateway::payload::incoming::MessageCreate;
 
@@ -22,6 +24,31 @@ where
     pub event: MessageCreate,
 }
 
+pub type PrefixesResult = Result<Vec<String>, Arc<dyn Error + Send + Sync>>;
+
+pub trait IntoPrefixesResult {
+    fn into_prefixes_result(self) -> PrefixesResult;
+}
+
+impl IntoPrefixesResult for Vec<String> {
+    fn into_prefixes_result(self) -> PrefixesResult {
+        Ok(self)
+    }
+}
+
+impl<T, E> IntoPrefixesResult for Result<T, E>
+where
+    T: Into<Vec<String>>,
+    E: Error + Send + Sync + 'static,
+{
+    fn into_prefixes_result(self) -> PrefixesResult {
+        match self {
+            Ok(v) => Ok(v.into()),
+            Err(e) => Err(Arc::new(e)),
+        }
+    }
+}
+
 pub trait Prefixes<State = ()>: Send + Sync
 where
     State: StateBound,
@@ -32,11 +59,12 @@ where
     /// * `context` - The context passed to the prefix getter.
     ///
     /// Returns:
-    /// [`Vec<String>`] - A vector of prefixes for the bot to listen for in the given context.
+    /// * `Ok(Vec<String>)` - A vector of prefixes for the bot to listen for in the given context.
+    /// * `Err(Arc<Err>)` - An error, if the prefixes fail to be gotten.
     fn get(
         &self,
         context: PrefixesContext<State>,
-    ) -> Pin<Box<dyn Future<Output = Vec<String>> + Send + '_>>;
+    ) -> Pin<Box<dyn Future<Output = PrefixesResult> + Send + '_>>;
 }
 
 impl<State> Prefixes<State> for &str
@@ -46,8 +74,8 @@ where
     fn get(
         &self,
         _context: PrefixesContext<State>,
-    ) -> Pin<Box<dyn Future<Output = Vec<String>> + Send + '_>> {
-        pinbox(vec![self.to_string()])
+    ) -> Pin<Box<dyn Future<Output = PrefixesResult> + Send + '_>> {
+        pinbox(Ok(vec![self.to_string()]))
     }
 }
 
@@ -58,8 +86,8 @@ where
     fn get(
         &self,
         _context: PrefixesContext<State>,
-    ) -> Pin<Box<dyn Future<Output = Vec<String>> + Send + '_>> {
-        pinbox(vec![self.clone()])
+    ) -> Pin<Box<dyn Future<Output = PrefixesResult> + Send + '_>> {
+        pinbox(Ok(vec![self.clone()]))
     }
 }
 
@@ -70,8 +98,8 @@ where
     fn get(
         &self,
         _context: PrefixesContext<State>,
-    ) -> Pin<Box<dyn Future<Output = Vec<String>> + Send + '_>> {
-        pinbox(self.iter().map(|s| s.to_string()).collect())
+    ) -> Pin<Box<dyn Future<Output = PrefixesResult> + Send + '_>> {
+        pinbox(Ok(self.iter().map(|s| s.to_string()).collect()))
     }
 }
 
@@ -82,8 +110,8 @@ where
     fn get(
         &self,
         _context: PrefixesContext<State>,
-    ) -> Pin<Box<dyn Future<Output = Vec<String>> + Send + '_>> {
-        pinbox(self.clone())
+    ) -> Pin<Box<dyn Future<Output = PrefixesResult> + Send + '_>> {
+        pinbox(Ok(self.clone()))
     }
 }
 
@@ -94,8 +122,8 @@ where
     fn get(
         &self,
         _context: PrefixesContext<State>,
-    ) -> Pin<Box<dyn Future<Output = Vec<String>> + Send + '_>> {
-        pinbox(self.to_vec())
+    ) -> Pin<Box<dyn Future<Output = PrefixesResult> + Send + '_>> {
+        pinbox(Ok(self.to_vec()))
     }
 }
 
@@ -106,8 +134,8 @@ where
     fn get(
         &self,
         _context: PrefixesContext<State>,
-    ) -> Pin<Box<dyn Future<Output = Vec<String>> + Send + '_>> {
-        pinbox(self.iter().map(|s| s.to_string()).collect())
+    ) -> Pin<Box<dyn Future<Output = PrefixesResult> + Send + '_>> {
+        pinbox(Ok(self.iter().map(|s| s.to_string()).collect()))
     }
 }
 
@@ -118,21 +146,22 @@ where
     fn get(
         &self,
         _context: PrefixesContext<State>,
-    ) -> Pin<Box<dyn Future<Output = Vec<String>> + Send + '_>> {
-        pinbox(self.iter().map(|s| s.to_string()).collect())
+    ) -> Pin<Box<dyn Future<Output = PrefixesResult> + Send + '_>> {
+        pinbox(Ok(self.iter().map(|s| s.to_string()).collect()))
     }
 }
 
-impl<F, Fut, State> Prefixes<State> for F
+impl<State, Func, Fut, Res> Prefixes<State> for Func
 where
-    F: Fn(PrefixesContext<State>) -> Fut + Send + Sync + 'static,
-    Fut: Future<Output = Vec<String>> + Send + 'static,
     State: StateBound,
+    Func: Fn(PrefixesContext<State>) -> Fut + Send + Sync + 'static,
+    Fut: Future<Output = Res> + Send + 'static,
+    Res: IntoPrefixesResult,
 {
     fn get(
         &self,
         context: PrefixesContext<State>,
-    ) -> Pin<Box<dyn Future<Output = Vec<String>> + Send + '_>> {
-        Box::pin(async move { (self)(context).await })
+    ) -> Pin<Box<dyn Future<Output = PrefixesResult> + Send + '_>> {
+        Box::pin(async move { (self)(context).await.into_prefixes_result() })
     }
 }

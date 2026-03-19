@@ -25,6 +25,10 @@ use crate::commands::permissions::PermissionError;
 /// An error that occurred when a command was called.
 #[derive(Debug, thiserror::Error, Clone)]
 pub enum CommandError {
+    /// An error occurred while getting the prefixes for a message.
+    #[error("An error occurred while getting the prefixes for a message: {0}")]
+    Prefixes(Arc<dyn Error + Send + Sync>),
+
     /// An error occurred while parsing a command's arguments.
     #[error("An error occurred while parsing a command's arguments: {0}")]
     Arguments(#[from] ArgumentError),
