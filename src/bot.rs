@@ -90,7 +90,7 @@ where
     /// 
     /// Returns:
     /// [`Bot`] - The current bot with the shard specified.
-    pub async fn shard(mut self, current_id: u32, total: u32) -> Self {
+    pub fn shard(mut self, current_id: u32, total: u32) -> Self {
         self.shard = ShardId::new_checked(current_id, total).expect("The shard ID you set is not valid!");
         self
     }
