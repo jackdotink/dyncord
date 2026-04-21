@@ -20,7 +20,5 @@
 
 pub mod channels;
 pub mod component;
-pub mod embeds;
-pub mod message;
 pub mod roles;
 pub mod users;

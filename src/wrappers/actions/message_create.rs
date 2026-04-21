@@ -1,6 +1,5 @@
 //! A wrapper around sending messages.
 
-use twilight_model::channel::message::Embed;
 use twilight_model::channel::{Message, message::Component};
 use twilight_model::id::Id;
 use twilight_model::id::marker::{ChannelMarker, MessageMarker};
