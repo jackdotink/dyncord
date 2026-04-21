@@ -80,12 +80,11 @@ where
     ///
     /// Arguments:
     /// * `channel_id` - The ID of the channel to send the message to.
-    /// * `content` - The content of the message to send.
     ///
     /// Returns:
     /// [`MessageCreate`] - A message builder that can be used to send the message.
-    pub fn send(&self, channel_id: Id<ChannelMarker>, content: impl Into<String>) -> MessageCreate {
-        MessageCreate::new(self.client.clone(), channel_id, content)
+    pub fn send(&self, channel_id: Id<ChannelMarker>) -> MessageCreate {
+        MessageCreate::new(self.client.clone(), channel_id)
     }
 
     /// Fetches a user from the Discord API.

@@ -1,7 +1,7 @@
 //! A wrapper around sending messages.
 
-use twilight_model::channel::Message;
 use twilight_model::channel::message::Embed;
+use twilight_model::channel::{Message, message::Component};
 use twilight_model::id::Id;
 use twilight_model::id::marker::{ChannelMarker, MessageMarker};
 
@@ -17,28 +17,19 @@ pub struct MessageCreate {
     /// The ID of the channel to send the message to.
     channel_id: Id<ChannelMarker>,
 
-    /// The content of the message to send.
-    content: String,
-
     /// The ID of the message to reply to, if any.
     replying_to: Option<Id<MessageMarker>>,
 
-    /// The embeds to include in the message.
-    embeds: Vec<Embed>,
+    components: Vec<Component>,
 }
 
 impl MessageCreate {
-    pub(crate) fn new(
-        client: DiscordClient,
-        channel_id: Id<ChannelMarker>,
-        content: impl Into<String>,
-    ) -> Self {
+    pub(crate) fn new(client: DiscordClient, channel_id: Id<ChannelMarker>) -> Self {
         Self {
             client,
             channel_id,
-            content: content.into(),
             replying_to: None,
-            embeds: Vec::new(),
+            components: Vec::new(),
         }
     }
 
@@ -54,15 +45,8 @@ impl MessageCreate {
         self
     }
 
-    /// Adds an embed to the message.
-    ///
-    /// Arguments:
-    /// * `embed` - The embed to add to the message.
-    ///
-    /// Returns:
-    /// [`MessageCreate`] - The message builder with the embed added.
-    pub fn embed(mut self, embed: impl Into<Embed>) -> Self {
-        self.embeds.push(embed.into());
+    pub fn component(mut self, component: Component) -> Self {
+        self.components.push(component);
         self
     }
 
@@ -75,8 +59,7 @@ impl MessageCreate {
         let mut builder = self
             .client
             .create_message(self.channel_id)
-            .embeds(&self.embeds)
-            .content(&self.content);
+            .components(&self.components);
 
         if let Some(reply) = self.replying_to {
             builder = builder.reply(reply);
