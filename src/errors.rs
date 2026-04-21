@@ -411,7 +411,6 @@ use std::sync::Arc;
 
 use twilight_gateway::Event;
 
-use crate::commands::message::context::MessageContext;
 use crate::commands::slash::context::SlashContext;
 use crate::events::EventContext;
 use crate::handle::Handle;
@@ -420,6 +419,10 @@ use crate::utils::DynFuture;
 use crate::{
     commands::errors::{ArgumentError, CommandError},
     wrappers::types::component::TextDisplay,
+};
+use crate::{
+    commands::message::context::MessageContext,
+    wrappers::actions::interaction_respond::InteractionMessageReply,
 };
 
 /// A top-level error type for handle-able errors that occur while the bot is running.
@@ -503,9 +506,9 @@ where
 {
     /// Sends a message to the current channel if the error was raised by a command.
     ///
-    /// - For slash commands, this is equivalent to [`SlashContext::respond`].
+    /// - For slash commands, this is equivalent to [`SlashContext::reply`].
     ///
-    /// For non-command-returned errors, this is a no-op.
+    /// For non-command-returned errors, this panics.
     ///
     /// Arguments:
     /// * `message` - The message to send.
@@ -514,24 +517,15 @@ where
     /// * `Ok(true)` - If the message was successfully sent.
     /// * `Ok(false)` - If the message wasn't sent because the error was non-command-returned.
     /// * `Err(ErrorHandlerError::Runtime)` - If an error occurs while sending the message.
-    pub async fn send(&self, message: impl Into<String>) -> Result<bool, ErrorHandlerError> {
+    pub async fn reply(&self) -> InteractionMessageReply {
         match &self.original {
-            ErrorOriginalContext::SlashContext(ctx) => {
-                ctx.reply()
-                    .component(TextDisplay::new(message))
-                    .await
-                    .map_err(ErrorHandlerError::new)?;
-            }
-            ErrorOriginalContext::MessageContext(ctx) => {
-                ctx.reply()
-                    .component(TextDisplay::new(message))
-                    .await
-                    .map_err(ErrorHandlerError::new)?;
-            }
-            _ => return Ok(false),
-        };
+            ErrorOriginalContext::SlashContext(ctx) => ctx.reply(),
+            ErrorOriginalContext::MessageContext(ctx) => ctx.reply(),
 
-        Ok(true)
+            _ => panic!(
+                "ErrorContext::reply() can only be used when the error was returned by a command handler. Check ErrorContext::original for the original context type."
+            ),
+        }
     }
 }
 
