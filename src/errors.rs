@@ -412,8 +412,6 @@ use std::sync::Arc;
 use twilight_gateway::Event;
 
 use crate::commands::message::context::MessageContext;
-use crate::commands::prefixed::context::PrefixedContext;
-use crate::commands::prefixed::prefixes::PrefixesContext;
 use crate::commands::slash::context::SlashContext;
 use crate::events::EventContext;
 use crate::handle::Handle;
@@ -471,7 +469,6 @@ impl DyncordError {
                     }
                 }
                 CommandError::Permissions(error) => error.downcast_ref(),
-                CommandError::Prefixes(error) => error.downcast_ref(),
                 CommandError::Runtime(error) => error.downcast_ref(),
             },
             DyncordError::Event(error) => error.downcast_ref(),
@@ -506,7 +503,6 @@ where
 {
     /// Sends a message to the current channel if the error was raised by a command.
     ///
-    /// - For prefixed commands, this is equivalent to [`PrefixedContext::send`].
     /// - For slash commands, this is equivalent to [`SlashContext::respond`].
     ///
     /// For non-command-returned errors, this is a no-op.
@@ -520,9 +516,6 @@ where
     /// * `Err(ErrorHandlerError::Runtime)` - If an error occurs while sending the message.
     pub async fn send(&self, message: impl Into<String>) -> Result<bool, ErrorHandlerError> {
         match &self.original {
-            ErrorOriginalContext::PrefixedContext(ctx) => {
-                let _ = ctx.send(message).await.map_err(ErrorHandlerError::new)?;
-            }
             ErrorOriginalContext::SlashContext(ctx) => {
                 ctx.reply()
                     .component(TextDisplay::new(message))
@@ -548,12 +541,6 @@ pub enum ErrorOriginalContext<State>
 where
     State: StateBound,
 {
-    /// The error occurred while dynamically getting the prefixes for a message event.
-    PrefixesContext(Box<PrefixesContext<State>>),
-
-    /// The error occurred when a prefixed command was called.
-    PrefixedContext(Box<PrefixedContext<State>>),
-
     /// The error occurred when a slash command was called.
     SlashContext(Box<SlashContext<State>>),
 

@@ -8,5 +8,4 @@
 //!   [`is_in_server`](permissions::is_in_server).
 
 pub mod cache;
-pub mod help;
 pub mod permissions;

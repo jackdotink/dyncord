@@ -11,7 +11,7 @@
 //!
 //! This module also has command type-indifferent modules, like [`errors`] and [`permissions`].
 //! Check their documentation out to learn about error types and permission checking.
-//! 
+//!
 //! The sections below are quick starts. Read the command type-specific submodule to learn about
 //! the details of each command type and their supported features. Command type-indifferent modules
 //! like [`errors`] and [`permissions`] aren't documented in command type-specific modules, so
@@ -167,73 +167,73 @@
 //! documentation on how to implement them, check out the [`slash` module's documentation](slash).
 //! It has all the details you'll need to be able to create slash commands more in detail. For now,
 //! happy coding!
-//! 
+//!
 //! # Message Commands
-//! 
+//!
 //! Message commands are one of the simplest command types there are to work with in Discord.
 //! They're shown as an option of a message's context menu<sup>1</sup>, don't require a
 //! description, and don't take arguments other than the message they were called on.
-//! 
+//!
 //! > <sup>1</sup> Context menus are the pop-ups that appear with multiple options when you right
 //! > click on a message on desktop, or when you press and hold a message on mobile. [Click here
 //! > to see a screenshot of one](https://files.catbox.moe/5azefu.png).
-//! 
+//!
 //! Message commands, like all the other command types, are handled with an asynchronous function.
 //! However, message command handlers don't take custom arguments. All message command handlers
 //! must look like follows:
-//! 
+//!
 //! ```
 //! async fn handle_message_command(ctx: MessageContext, message: Message) {}
 //! ```
-//! 
+//!
 //! No custom arguments; Any handler signature that doesn't take those arguments that won't
 //! compile.
-//! 
+//!
 //! To register a message command on your bot, call [`Bot::command`](crate::Bot::command) on your
 //! bot. In essence,
-//! 
+//!
 //! ```
 //! let bot = Bot::new(()).command(Command::message("Name", handle_message_command));
-//! ``` 
-//! 
+//! ```
+//!
 //! Running the bot will automatically register your command and route to it when it gets called.
-//! 
+//!
 //! Like slash commands, you have to respond to the user interaction for Discord not to show an
 //! error to the user when running your command. That's done with the
 //! [`MessageContext`](message::context::MessageContext) argument your command handler takes.
-//! 
+//!
 //! [`MessageContext`](message::context::MessageContext) has two associated functions you can use
 //! when responding to a command,
 //! [`MessageContext::respond`](message::context::MessageContext::respond) and
 //! [`MessageContext::respond`](message::context::MessageContext::defer).
-//! 
+//!
 //! - [`MessageContext::respond`](message::context::MessageContext::respond): Responds to the
 //!   command call with a message. The most direct when your command does something quick.
 //! - [`MessageContext::defer`](message::context::MessageContext::defer): Defers the response and
 //!   shows a loading message to the user while you do some slower work. Call
 //!   [`MessageContext::respond`](message::context::MessageContext::respond) when you're done doing
 //!   the slower work.
-//! 
+//!
 //! For example,
-//! 
+//!
 //! ```
 //! async fn handle_quick(ctx: MessageContext, message: Message) -> Result<(), TwilightError> {
 //!     ctx.respond("Hey there!").await?;
-//! 
+//!
 //!     Ok(())
 //! }
-//! 
+//!
 //! async fn handle_slow(ctx: MessageContext, message: Message) -> Result<(), TwilightError> {
 //!     ctx.defer().await?;
-//! 
+//!
 //!     tokio::time::sleep(Duration::from_secs(3)).await;
-//! 
+//!
 //!     ctx.respond("Hey there!").await?;
-//! 
+//!
 //!     Ok(())
 //! }
 //! ```
-//! 
+//!
 //! This is only a short introduction to building message commands with Dyncord. For a more
 //! extensive documentation on how to implement them, check out the
 //! [`message` module's documentation](message). It has all the details you'll need to be able to
@@ -242,7 +242,6 @@
 pub mod errors;
 pub mod message;
 pub mod permissions;
-pub mod prefixed;
 pub(crate) mod registration;
 pub mod slash;
 
@@ -250,10 +249,6 @@ use crate::commands::errors::CommandError;
 use crate::commands::message::{
     MessageCommand, MessageCommandBuilder, MessageCommandGroup, MessageCommandGroupBuilder,
     MessageCommandHandler,
-};
-use crate::commands::prefixed::{
-    PrefixedCommand, PrefixedCommandBuilder, PrefixedCommandGroup, PrefixedCommandGroupBuilder,
-    PrefixedCommandHandler,
 };
 use crate::commands::slash::{
     SlashCommand, SlashCommandBuilder, SlashCommandGroup, SlashCommandGroupBuilder,
@@ -267,8 +262,6 @@ pub enum CommandNode<State>
 where
     State: StateBound,
 {
-    PrefixedCommand(PrefixedCommand<State>),
-    PrefixedCommandGroup(PrefixedCommandGroup<State>),
     SlashCommand(SlashCommand<State>),
     SlashCommandGroup(SlashCommandGroup<State>),
     MessageCommand(MessageCommand<State>),
@@ -285,24 +278,6 @@ where
     /// Returns:
     /// [`CommandNode`] - The resulting command node.
     fn into_command_node(self) -> CommandNode<State>;
-}
-
-impl<State> CommandIntoCommandNode<State> for PrefixedCommand<State>
-where
-    State: StateBound,
-{
-    fn into_command_node(self) -> CommandNode<State> {
-        CommandNode::PrefixedCommand(self)
-    }
-}
-
-impl<State> CommandIntoCommandNode<State> for PrefixedCommandBuilder<State>
-where
-    State: StateBound,
-{
-    fn into_command_node(self) -> CommandNode<State> {
-        CommandNode::PrefixedCommand(self.build())
-    }
 }
 
 impl<State> CommandIntoCommandNode<State> for SlashCommand<State>
@@ -348,26 +323,6 @@ where
 pub struct Command;
 
 impl Command {
-    /// Creates a new prefixed command builder with the given name and handler.
-    ///
-    /// Arguments:
-    /// * `name` - The command's name, used to invoke the command.
-    /// * `handler` - The command's handler, the function that executes when the command is run.
-    ///
-    /// Returns:
-    /// [`PrefixedCommandBuilder`] - A new command builder with the given name and handler.
-    pub fn prefixed<State, F, Args>(
-        name: impl Into<String>,
-        handler: F,
-    ) -> PrefixedCommandBuilder<State>
-    where
-        F: PrefixedCommandHandler<State, Args> + 'static,
-        Args: Send + Sync + 'static,
-        State: StateBound,
-    {
-        PrefixedCommandBuilder::new(name, handler)
-    }
-
     /// Creates a new slash command builder with the given name and handler.
     ///
     /// Arguments:
@@ -409,20 +364,6 @@ impl Command {
 pub struct CommandGroup;
 
 impl CommandGroup {
-    /// Intializes a prefixed command group builder.
-    ///
-    /// Arguments:
-    /// * `name` - The command group's name.
-    ///
-    /// Returns:
-    /// [`PrefixedCommandGroupBuilder`] - A new prefixed command group builder.
-    pub fn prefixed<State>(name: impl Into<String>) -> PrefixedCommandGroupBuilder<State>
-    where
-        State: StateBound,
-    {
-        PrefixedCommandGroupBuilder::new(name)
-    }
-
     /// Intializes a slash command group builder.
     ///
     /// Arguments:
@@ -464,32 +405,6 @@ where
     fn into_command_node(self) -> CommandNode<State>;
 }
 
-/// Flattens a [`CommandNode`] tree into a list of [`PrefixedCommand`]s.
-///
-/// Arguments:
-/// * `nodes` - The nodes to flatten, which is a list of commands and command groups.
-///
-/// Returns:
-/// [`Vec<PrefixedCommand>`] - A list of all the commands in the tree.
-pub fn flatten_prefixed<State>(nodes: &[CommandNode<State>]) -> Vec<&PrefixedCommand<State>>
-where
-    State: StateBound,
-{
-    let mut commands = Vec::new();
-
-    for node in nodes {
-        match node {
-            CommandNode::PrefixedCommand(command) => commands.push(command),
-            CommandNode::PrefixedCommandGroup(group) => {
-                commands.extend(flatten_prefixed(&group.children))
-            }
-            _ => {}
-        }
-    }
-
-    commands
-}
-
 /// Flattens a [`CommandNode`] tree into a list of [`SlashCommand`]s.
 ///
 /// Arguments:
@@ -506,7 +421,7 @@ where
     for node in nodes {
         match node {
             CommandNode::SlashCommand(command) => commands.push(command),
-            CommandNode::PrefixedCommandGroup(group) => {
+            CommandNode::SlashCommandGroup(group) => {
                 commands.extend(flatten_slash(&group.children))
             }
             _ => {}
@@ -536,31 +451,6 @@ where
                 commands.extend(flatten_message(&group.children))
             }
             _ => {}
-        }
-    }
-
-    commands
-}
-
-/// Returns all the prefixed commands in a list of [`CommandNode`]s.
-///
-/// Sub-commands inside command groups are not returned.
-///
-/// Arguments:
-/// * `nodes` - The nodes to get the commands from, which is a list of commands and command groups.
-///
-/// Returns:
-/// [`Vec<SlashCommand>`] - A list of all the prefixed commands in the list of nodes, excluding
-/// sub-commands in command groups.
-pub fn get_prefixed_commands<State>(nodes: &[CommandNode<State>]) -> Vec<&PrefixedCommand<State>>
-where
-    State: StateBound,
-{
-    let mut commands = Vec::new();
-
-    for node in nodes {
-        if let CommandNode::PrefixedCommand(command) = node {
-            commands.push(command);
         }
     }
 
@@ -615,32 +505,6 @@ where
     }
 
     commands
-}
-
-/// Returns all the prefixed command groups in a list of [`CommandNode`]s.
-///
-/// Sub-groups inside command groups are not returned.
-///
-/// Arguments:
-/// * `nodes` - The nodes to get the command groups from, which is a list of commands and command
-///   groups.
-///
-/// Returns:
-/// [`Vec<PrefixedCommandGroup>`] - A list of all the command groups in the list of nodes,
-/// excluding sub-groups in command groups.
-pub fn get_prefixed_groups<State>(nodes: &[CommandNode<State>]) -> Vec<&PrefixedCommandGroup<State>>
-where
-    State: StateBound,
-{
-    let mut groups = Vec::new();
-
-    for node in nodes {
-        if let CommandNode::PrefixedCommandGroup(group) = node {
-            groups.push(group);
-        }
-    }
-
-    groups
 }
 
 /// Returns all the slash command groups in a list of [`CommandNode`]s.

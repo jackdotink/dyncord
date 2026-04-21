@@ -7,11 +7,9 @@ use twilight_http::Client;
 use twilight_model::gateway::payload::outgoing::identify::IdentifyProperties;
 
 use crate::cache::{self, Cache};
-use crate::commands::prefixed::prefixes::Prefixes;
 use crate::commands::slash::InvalidCommandError;
 use crate::commands::{
-    self, CommandGroupIntoCommandNode, CommandIntoCommandNode, CommandNode, message, prefixed,
-    slash,
+    self, CommandGroupIntoCommandNode, CommandIntoCommandNode, CommandNode, message, slash,
 };
 use crate::errors::{
     self, DyncordError, ErrorContext, ErrorHandler, ErrorHandlerWithoutType, ErrorHandlerWrapper,
@@ -41,9 +39,6 @@ where
     /// The shard ID to use when connecting to the Discord API.
     shard: ShardId,
 
-    /// The bot's prefixes getter, or [`None`] if message commands are disabled.
-    prefixes: Option<Arc<dyn Prefixes<State>>>,
-
     /// Top-level error handlers.
     on_errors: Vec<Arc<dyn ErrorHandlerWithoutType<State>>>,
 
@@ -72,26 +67,26 @@ where
             state,
             intents: Intents::empty(),
             shard: ShardId::ONE,
-            prefixes: None,
             on_errors: Vec::new(),
             cache: None,
         }
     }
 
     /// Sets the shard ID to run as.
-    /// 
+    ///
     /// If this function is not called, the shard is by default set to ID 0 with 1 shards.
-    /// 
+    ///
     /// The current ID must be one of `0..total`.
-    /// 
+    ///
     /// Arguments:
     /// * `current_id` - The current shard's ID.
     /// * `total` - The total amount of shards.
-    /// 
+    ///
     /// Returns:
     /// [`Bot`] - The current bot with the shard specified.
     pub fn shard(mut self, current_id: u32, total: u32) -> Self {
-        self.shard = ShardId::new_checked(current_id, total).expect("The shard ID you set is not valid!");
+        self.shard =
+            ShardId::new_checked(current_id, total).expect("The shard ID you set is not valid!");
         self
     }
 
@@ -170,31 +165,6 @@ where
         self
     }
 
-    /// Sets the prefix or prefixes the bot will use to route message commands.
-    ///
-    /// This can be called with a single prefix or multiple prefixes. You can also dynamically
-    /// determine the prefixes based on the message or the bot's state by passing a closure or
-    /// function like follows:
-    ///
-    /// ```
-    /// async fn get_prefixes(ctx: Context, state: State) -> Vec<String> {
-    ///     // Determine prefixes based on the message or state.
-    ///     vec![".".to_string(), "!".to_string()]
-    /// }
-    ///
-    /// let bot = Bot::new(state).with_prefix(get_prefixes);
-    /// ```
-    ///
-    /// Arguments:
-    /// * `prefixes` - The prefix, prefixes, or prefixes getter.
-    ///
-    /// Returns:
-    /// [`Bot`] - The current bot instance with the prefixes value set.
-    pub fn with_prefix(mut self, prefixes: impl Prefixes<State> + 'static) -> Self {
-        self.prefixes = Some(Arc::new(prefixes));
-        self
-    }
-
     /// Adds a top-level error handler.
     ///
     /// This error handler will catch all errors that are either not catched by other error
@@ -252,7 +222,6 @@ where
         Handle {
             client,
             commands: Arc::new(self.commands.clone()),
-            prefixes: self.prefixes.clone(),
             on_errors: self.on_errors.clone(),
             cache: self.cache.clone(),
         }
@@ -282,7 +251,6 @@ where
         if !self.commands.is_empty() {
             let mut has_slash_commands = false;
             let mut has_message_commands = false;
-            let mut has_prefixed_commands = false;
 
             if !commands::flatten_slash(&self.commands).is_empty() {
                 has_slash_commands = true;
@@ -290,16 +258,6 @@ where
 
             if !commands::flatten_message(&self.commands).is_empty() {
                 has_message_commands = true;
-            }
-
-            if !commands::flatten_prefixed(&self.commands).is_empty() {
-                has_prefixed_commands = true;
-            }
-
-            if has_prefixed_commands {
-                self = self.on_event(On::message_create(
-                    prefixed::routing::route_prefixed_command,
-                ));
             }
 
             if has_slash_commands {

@@ -36,7 +36,6 @@ use twilight_model::id::marker::ChannelMarker;
 use crate::aliases::DiscordClient;
 use crate::cache::Cache;
 use crate::commands::CommandNode;
-use crate::commands::prefixed::prefixes::Prefixes;
 use crate::errors::ErrorHandlerWithoutType;
 use crate::state::StateBound;
 use crate::wrappers::TwilightError;
@@ -56,9 +55,6 @@ where
 
     /// The bot's commands.
     pub commands: Arc<Vec<CommandNode<State>>>,
-
-    /// The prefixes getter for the bot, if any.
-    pub(crate) prefixes: Option<Arc<dyn Prefixes<State>>>,
 
     /// The top-level error handler.
     pub(crate) on_errors: Vec<Arc<dyn ErrorHandlerWithoutType<State>>>,
