@@ -411,7 +411,6 @@ use std::sync::Arc;
 
 use twilight_gateway::Event;
 
-use crate::commands::errors::{ArgumentError, CommandError};
 use crate::commands::message::context::MessageContext;
 use crate::commands::prefixed::context::PrefixedContext;
 use crate::commands::prefixed::prefixes::PrefixesContext;
@@ -420,6 +419,10 @@ use crate::events::EventContext;
 use crate::handle::Handle;
 use crate::state::StateBound;
 use crate::utils::DynFuture;
+use crate::{
+    commands::errors::{ArgumentError, CommandError},
+    wrappers::types::component::TextDisplay,
+};
 
 /// A top-level error type for handle-able errors that occur while the bot is running.
 #[derive(Debug, thiserror::Error, Clone)]
@@ -521,10 +524,16 @@ where
                 let _ = ctx.send(message).await.map_err(ErrorHandlerError::new)?;
             }
             ErrorOriginalContext::SlashContext(ctx) => {
-                ctx.respond(message).await.map_err(ErrorHandlerError::new)?;
+                ctx.reply()
+                    .component(TextDisplay::new(message))
+                    .await
+                    .map_err(ErrorHandlerError::new)?;
             }
             ErrorOriginalContext::MessageContext(ctx) => {
-                ctx.respond(message).await.map_err(ErrorHandlerError::new)?;
+                ctx.reply()
+                    .component(TextDisplay::new(message))
+                    .await
+                    .map_err(ErrorHandlerError::new)?;
             }
             _ => return Ok(false),
         };

@@ -7,7 +7,7 @@ use crate::commands::message::MessageCommand;
 use crate::handle::Handle;
 use crate::state::StateBound;
 use crate::wrappers::actions::interaction_respond::{
-    InteractionRespondWithDeferral, InteractionRespondWithMessage,
+    InteractionDeferReply, InteractionMessageReply,
 };
 
 #[derive(Clone)]
@@ -37,19 +37,15 @@ where
 {
     /// Respond to the command with a message.
     ///
-    /// Arguments:
-    /// * `content` - The content of the message to respond with.
-    ///
     /// Returns:
     /// [`InteractionRespondWithMessage`] - The interaction response builder. Await it to send the
     /// response.
-    pub fn respond(&self, content: impl Into<String>) -> InteractionRespondWithMessage {
-        InteractionRespondWithMessage::new(
+    pub fn reply(&self) -> InteractionMessageReply {
+        InteractionMessageReply::new(
             self.handle.client.clone(),
             self.event.application_id,
             self.event.id,
             self.event.token.clone(),
-            content,
         )
     }
 
@@ -58,8 +54,8 @@ where
     /// Returns:
     /// [`InteractionRespondWithDeferral`] - The interaction response builder. Await it to defer
     /// the response.
-    pub fn defer(&self) -> InteractionRespondWithDeferral {
-        InteractionRespondWithDeferral::new(
+    pub fn defer(&self) -> InteractionDeferReply {
+        InteractionDeferReply::new(
             self.handle.client.clone(),
             self.event.application_id,
             self.event.id,

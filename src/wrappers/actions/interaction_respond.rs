@@ -1,41 +1,53 @@
 //! Wrappers around responding to interactions.
 
-use twilight_model::http::interaction::{
-    InteractionResponse, InteractionResponseData, InteractionResponseType,
-};
-use twilight_model::id::Id;
 use twilight_model::id::marker::{ApplicationMarker, InteractionMarker};
+use twilight_model::{
+    channel::message::Component,
+    http::interaction::{InteractionResponse, InteractionResponseData, InteractionResponseType},
+};
+use twilight_model::{channel::message::MessageFlags, id::Id};
 
 use crate::aliases::DiscordClient;
 use crate::utils::DynFuture;
 use crate::wrappers::TwilightError;
 
 /// A builder for responding to an interaction with a message.
-pub struct InteractionRespondWithMessage {
+pub struct InteractionMessageReply {
     client: DiscordClient,
 
     application_id: Id<ApplicationMarker>,
     interaction_id: Id<InteractionMarker>,
     interaction_token: String,
 
-    content: String,
+    components: Vec<Component>,
+    ephemeral: bool,
 }
 
-impl InteractionRespondWithMessage {
+impl InteractionMessageReply {
     pub(crate) fn new(
         client: DiscordClient,
         application_id: Id<ApplicationMarker>,
         interaction_id: Id<InteractionMarker>,
         interaction_token: String,
-        content: impl Into<String>,
     ) -> Self {
         Self {
             client,
             application_id,
             interaction_id,
             interaction_token,
-            content: content.into(),
+            components: Vec::new(),
+            ephemeral: false,
         }
+    }
+
+    pub fn component(mut self, component: impl Into<Component>) -> Self {
+        self.components.push(component.into());
+        self
+    }
+
+    pub fn ephemeral(mut self) -> Self {
+        self.ephemeral = true;
+        self
     }
 
     async fn send(self) -> Result<(), TwilightError> {
@@ -47,7 +59,18 @@ impl InteractionRespondWithMessage {
                 &InteractionResponse {
                     kind: InteractionResponseType::ChannelMessageWithSource,
                     data: Some(InteractionResponseData {
-                        content: Some(self.content),
+                        components: if self.components.is_empty() {
+                            None
+                        } else {
+                            Some(self.components)
+                        },
+
+                        flags: if self.ephemeral {
+                            Some(MessageFlags::EPHEMERAL | MessageFlags::IS_COMPONENTS_V2)
+                        } else {
+                            None
+                        },
+
                         ..Default::default()
                     }),
                 },
@@ -58,7 +81,7 @@ impl InteractionRespondWithMessage {
     }
 }
 
-impl IntoFuture for InteractionRespondWithMessage {
+impl IntoFuture for InteractionMessageReply {
     type Output = Result<(), TwilightError>;
     type IntoFuture = DynFuture<'static, Self::Output>;
 
@@ -68,15 +91,17 @@ impl IntoFuture for InteractionRespondWithMessage {
 }
 
 /// A builder for responding to an interaction with deferral.
-pub struct InteractionRespondWithDeferral {
+pub struct InteractionDeferReply {
     client: DiscordClient,
 
     application_id: Id<ApplicationMarker>,
     interaction_id: Id<InteractionMarker>,
     interaction_token: String,
+
+    ephemeral: bool,
 }
 
-impl InteractionRespondWithDeferral {
+impl InteractionDeferReply {
     pub(crate) fn new(
         client: DiscordClient,
         application_id: Id<ApplicationMarker>,
@@ -88,7 +113,13 @@ impl InteractionRespondWithDeferral {
             application_id,
             interaction_id,
             interaction_token,
+            ephemeral: false,
         }
+    }
+
+    pub fn ephemeral(mut self) -> Self {
+        self.ephemeral = true;
+        self
     }
 
     async fn send(self) -> Result<(), TwilightError> {
@@ -99,7 +130,15 @@ impl InteractionRespondWithDeferral {
                 &self.interaction_token,
                 &InteractionResponse {
                     kind: InteractionResponseType::DeferredChannelMessageWithSource,
-                    data: None,
+                    data: Some(InteractionResponseData {
+                        flags: if self.ephemeral {
+                            Some(MessageFlags::EPHEMERAL)
+                        } else {
+                            None
+                        },
+
+                        ..Default::default()
+                    }),
                 },
             )
             .await?;
@@ -108,7 +147,7 @@ impl InteractionRespondWithDeferral {
     }
 }
 
-impl IntoFuture for InteractionRespondWithDeferral {
+impl IntoFuture for InteractionDeferReply {
     type Output = Result<(), TwilightError>;
     type IntoFuture = DynFuture<'static, Self::Output>;
 
