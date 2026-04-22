@@ -7,17 +7,128 @@ use twilight_http::Client;
 use twilight_model::gateway::payload::outgoing::identify::IdentifyProperties;
 
 use crate::cache::{self, Cache};
-use crate::commands::slash::InvalidCommandError;
-use crate::commands::{
-    self, CommandGroupIntoCommandNode, CommandIntoCommandNode, CommandNode, message, slash,
-};
 use crate::errors::{
     self, DyncordError, ErrorContext, ErrorHandler, ErrorHandlerWithoutType, ErrorHandlerWrapper,
     ErrorOriginalContext,
 };
 use crate::events::{EventContext, EventHandler, EventHandlerBuilder, On};
 use crate::handle::Handle;
+use crate::interactions::slash::InvalidCommandError;
+use crate::interactions::{
+    self, CommandGroupIntoInteractionNode, InteractionIntoInteractionNode, InteractionNode,
+    message, slash,
+};
 use crate::state::StateBound;
+
+pub struct BotBuilder<State = ()>
+where
+    State: StateBound,
+{
+    interactions: Vec<InteractionNode<State>>,
+    on_events: Vec<EventHandler<State>>,
+    state: State,
+    intents: Intents,
+    on_errors: Vec<Arc<dyn ErrorHandlerWithoutType<State>>>,
+    cache: Option<Arc<dyn Cache>>,
+}
+
+impl<State> BotBuilder<State>
+where
+    State: StateBound,
+{
+    pub fn new(state: State) -> Self {
+        Self {
+            interactions: Vec::new(),
+            on_events: Vec::new(),
+            state,
+            intents: Intents::empty(),
+            on_errors: Vec::new(),
+            cache: None,
+        }
+    }
+
+    pub fn command(mut self, command: impl InteractionIntoInteractionNode<State>) -> Self {
+        self.interactions.push(command.into_interaction_node());
+        self
+    }
+
+    pub fn nest(mut self, group: impl CommandGroupIntoInteractionNode<State>) -> Self {
+        self.interactions.push(group.into_interaction_node());
+        self
+    }
+
+    pub fn on_event(mut self, handler: EventHandlerBuilder<State>) -> Self {
+        self.on_events.push(handler.build());
+        self
+    }
+
+    pub fn intents(mut self, intents: Intents) -> Self {
+        self.intents |= intents;
+        self
+    }
+
+    pub fn on_error<Error>(mut self, handler: impl ErrorHandler<State, Error> + 'static) -> Self
+    where
+        Error: Send + Sync + 'static,
+    {
+        self.on_errors
+            .push(Arc::new(ErrorHandlerWrapper::new(handler)));
+        self
+    }
+
+    pub fn with_cache(mut self, backend: impl Cache + 'static) -> Self {
+        self.cache = Some(Arc::new(backend));
+        self
+    }
+
+    pub fn build(mut self) -> Bot<State> {
+        if !self.interactions.is_empty() {
+            let mut has_slash_commands = false;
+            let mut has_message_commands = false;
+            let mut has_button_components = false;
+
+            if !interactions::flatten_slash(&self.interactions).is_empty() {
+                has_slash_commands = true;
+            }
+
+            if !interactions::flatten_message(&self.interactions).is_empty() {
+                has_message_commands = true;
+            }
+
+            if !interactions::get_button_components(&self.interactions).is_empty() {
+                has_button_components = true;
+            }
+
+            if has_slash_commands {
+                self = self.on_event(On::interaction_create(slash::routing::route_slash_command));
+            }
+
+            if has_message_commands {
+                self = self.on_event(On::interaction_create(
+                    message::routing::route_message_command,
+                ));
+            }
+
+            if has_button_components {
+                self = self.on_event(On::interaction_create(
+                    interactions::component::routing::route_button_component,
+                ))
+            }
+
+            self = self.on_event(On::ready(interactions::registration::register));
+        }
+
+        Bot {
+            interactions: Arc::from(self.interactions),
+            on_events: Arc::from(self.on_events),
+            state: self.state,
+            intents: self.intents,
+            shard: ShardId::ONE,
+            on_errors: Arc::from(self.on_errors),
+            cache: self.cache,
+        }
+    }
+}
 
 /// Holds all configurations related to a bot instance.
 pub struct Bot<State = ()>
@@ -25,10 +136,10 @@ where
     State: StateBound,
 {
     /// The list of commands the bot will route to when a message is received.
-    commands: Vec<CommandNode<State>>,
+    interactions: Arc<[InteractionNode<State>]>,
 
     /// The list of event handlers the bot will execute when an event is received.
-    on_events: Vec<EventHandler<State>>,
+    on_events: Arc<[EventHandler<State>]>,
 
     /// The bot's state, which can be any type you want (`Send + Sync + Clone`).
     state: State,
@@ -40,171 +151,16 @@ where
     shard: ShardId,
 
     /// Top-level error handlers.
-    on_errors: Vec<Arc<dyn ErrorHandlerWithoutType<State>>>,
+    on_errors: Arc<[Arc<dyn ErrorHandlerWithoutType<State>>]>,
 
     /// The cache backend in use, if any.
     cache: Option<Arc<dyn Cache>>,
-}
-
-impl Default for Bot<()> {
-    fn default() -> Self {
-        Self::new(())
-    }
 }
 
 impl<State> Bot<State>
 where
     State: StateBound,
 {
-    /// Creates a new instance of [`Bot`].
-    ///
-    /// Returns:
-    /// [`Bot`] - A new instance of the bot.
-    pub fn new(state: State) -> Bot<State> {
-        Bot {
-            commands: Vec::new(),
-            on_events: Vec::new(),
-            state,
-            intents: Intents::empty(),
-            shard: ShardId::ONE,
-            on_errors: Vec::new(),
-            cache: None,
-        }
-    }
-
-    /// Sets the shard ID to run as.
-    ///
-    /// If this function is not called, the shard is by default set to ID 0 with 1 shards.
-    ///
-    /// The current ID must be one of `0..total`.
-    ///
-    /// Arguments:
-    /// * `current_id` - The current shard's ID.
-    /// * `total` - The total amount of shards.
-    ///
-    /// Returns:
-    /// [`Bot`] - The current bot with the shard specified.
-    pub fn shard(mut self, current_id: u32, total: u32) -> Self {
-        self.shard =
-            ShardId::new_checked(current_id, total).expect("The shard ID you set is not valid!");
-        self
-    }
-
-    /// Adds a command to the bot's command list.
-    ///
-    /// Arguments:
-    /// * `command` - The command to add to the bot's command list.
-    ///
-    /// Returns:
-    /// [`Bot`] - The bot instance with the added command.
-    pub fn command(mut self, command: impl CommandIntoCommandNode<State>) -> Self {
-        self.commands.push(command.into_command_node());
-        self
-    }
-
-    /// Adds a command group to the bot's command list.
-    ///
-    /// For example:
-    /// ```rust
-    /// let bot = Bot::new(())
-    ///     .nest(
-    ///         CommandGroup::new("admin")
-    ///             .command(Command::build("kick", kick_command))
-    ///             .command(Command::build("ban", ban_command))
-    ///     );
-    /// ```
-    ///         
-    ///
-    /// Arguments:
-    /// * `group` - The command group to add to the bot's command list.
-    ///
-    /// Returns:
-    /// [`Bot`] - The bot instance with the added command group.
-    pub fn nest(mut self, group: impl CommandGroupIntoCommandNode<State>) -> Self {
-        self.commands.push(group.into_command_node());
-        self
-    }
-
-    /// Adds an event handler to the bot's event handlers list.
-    ///
-    /// For example, to add a handler for the `MessageCreate` event, you can do:
-    /// ```
-    /// Bot::new(()).on_event(On::message_create(on_message));
-    ///
-    /// async fn on_message(ctx: EventContext<State, MessageCreate>) {
-    ///     // Handle the message create event.
-    /// }
-    /// ```
-    ///
-    /// Arguments:
-    /// * `handler` - The event handler to add to the bot's event handlers list.
-    ///
-    /// Returns:
-    /// [`Bot`] - The bot instance with the added event handler.
-    pub fn on_event(mut self, handler: EventHandlerBuilder<State>) -> Self {
-        self.on_events.push(handler.build());
-        self
-    }
-
-    /// Adds intents to the bot's intents.
-    ///
-    /// This can be called either once per intent or once with all intents. For example:
-    /// ```rust
-    /// Bot::new(()).intents(Intents::GUILD_MESSAGES).intents(Intents::DIRECT_MESSAGES);
-    /// // or
-    /// Bot::new(()).intents(Intents::GUILD_MESSAGES | Intents::DIRECT_MESSAGES);
-    /// ```
-    ///
-    /// Arguments:
-    /// * `intents` - The intents to add to the bot's intents.
-    ///
-    /// Returns:
-    /// [`Bot`] - The bot instance with the added intents.
-    pub fn intents(mut self, intents: Intents) -> Self {
-        self.intents |= intents;
-        self
-    }
-
-    /// Adds a top-level error handler.
-    ///
-    /// This error handler will catch all errors that are either not catched by other error
-    /// handlers or when an error handler fails.
-    ///
-    /// Error handlers all follow the same signature:
-    ///
-    /// ```
-    /// async fn handle_error(ctx: ErrorContext<State>, error: DyncordError) {}
-    /// ```
-    ///
-    /// Arguments:
-    /// * `handler` - The error handler to add to the top-level error handlers.
-    ///
-    /// Returns:
-    /// [`Bot`] - The current bot instance with the top-level error handler added.
-    pub fn on_error<Error>(mut self, handler: impl ErrorHandler<State, Error> + 'static) -> Self
-    where
-        Error: Send + Sync + 'static,
-    {
-        self.on_errors
-            .push(Arc::new(ErrorHandlerWrapper::new(handler)));
-        self
-    }
-
-    /// Sets the cache backend to use.
-    ///
-    /// You can use either the [built-in cache backends](crate::builtin::cache) or implement a
-    /// custom backend using your own storage backend. There's a built-in in-memory backend.
-    ///
-    /// Arguments:
-    /// * `backend` - The cache backend to use.
-    ///
-    /// Returns:
-    /// [`Bot`] - The current bot instance with the cache backend set.
-    pub fn with_cache(mut self, backend: impl Cache + 'static) -> Self {
-        self.cache = Some(Arc::new(backend));
-        self
-    }
-
     /// Returns a handle to the bot, which can be used to interact with the bot's internal state.
     ///
     /// Note: This creates a handle using the current state of the bot. If you update the bot's
@@ -221,7 +177,7 @@ where
 
         Handle {
             client,
-            commands: Arc::new(self.commands.clone()),
+            interactions: self.interactions.clone(),
             on_errors: self.on_errors.clone(),
             cache: self.cache.clone(),
         }
@@ -238,7 +194,7 @@ where
     /// * `Ok(())` - If no errors were detected during execution, though if it stopped without you
     ///   wanting it to, that may also mean an error occurred.
     /// * `Err(RunningError)` - An error occurred while running or attempting to run the bot.
-    pub async fn run(mut self, token: impl Into<String>) -> Result<(), RunningError> {
+    pub async fn run(self, token: impl Into<String>) -> Result<(), RunningError> {
         let token = token.into();
         let handle = self.handle(token.clone());
 
@@ -247,34 +203,6 @@ where
             .build();
 
         let mut gateway = Shard::with_config(self.shard, config);
-
-        if !self.commands.is_empty() {
-            let mut has_slash_commands = false;
-            let mut has_message_commands = false;
-
-            if !commands::flatten_slash(&self.commands).is_empty() {
-                has_slash_commands = true;
-            }
-
-            if !commands::flatten_message(&self.commands).is_empty() {
-                has_message_commands = true;
-            }
-
-            if has_slash_commands {
-                slash::validate_commands(&commands::flatten_slash(&self.commands))
-                    .map_err(RunningError::InvalidSlashCommands)?;
-
-                self = self.on_event(On::interaction_create(slash::routing::route_slash_command));
-            }
-
-            if has_message_commands {
-                self = self.on_event(On::interaction_create(
-                    message::routing::route_message_command,
-                ));
-            }
-
-            self = self.on_event(On::ready(commands::registration::register));
-        }
 
         while let Some(Ok(event)) = gateway.next_event(EventTypeFlags::all()).await {
             let ctx = EventContext {

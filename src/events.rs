@@ -124,7 +124,7 @@ where
     State: StateBound,
 {
     pub handler: Arc<dyn EventHandlerHandlerWithoutArgs<State> + 'static>,
-    pub on_errors: Vec<Arc<dyn ErrorHandlerWithoutType<State>>>,
+    pub on_errors: Arc<[Arc<dyn ErrorHandlerWithoutType<State>>]>,
 }
 
 pub struct EventHandlerBuilder<State>
@@ -151,7 +151,7 @@ where
     pub(crate) fn build(self) -> EventHandler<State> {
         EventHandler {
             handler: self.handler,
-            on_errors: self.on_errors,
+            on_errors: Arc::from(self.on_errors),
         }
     }
 }

@@ -3,8 +3,8 @@
 use twilight_model::application::interaction::application_command::CommandData;
 use twilight_model::gateway::payload::incoming::InteractionCreate;
 
-use crate::commands::message::MessageCommand;
 use crate::handle::Handle;
+use crate::interactions::message::MessageCommand;
 use crate::state::StateBound;
 use crate::wrappers::actions::interaction_respond::{
     InteractionDeferReply, InteractionMessageReply,

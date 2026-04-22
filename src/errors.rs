@@ -411,17 +411,14 @@ use std::sync::Arc;
 
 use twilight_gateway::Event;
 
-use crate::commands::slash::context::SlashContext;
-use crate::events::EventContext;
 use crate::handle::Handle;
+use crate::interactions::errors::{ArgumentError, CommandError};
+use crate::interactions::slash::context::SlashContext;
 use crate::state::StateBound;
 use crate::utils::DynFuture;
+use crate::{events::EventContext, interactions::component::context::ButtonContext};
 use crate::{
-    commands::errors::{ArgumentError, CommandError},
-    wrappers::types::component::TextDisplay,
-};
-use crate::{
-    commands::message::context::MessageContext,
+    interactions::message::context::MessageContext,
     wrappers::actions::interaction_respond::InteractionMessageReply,
 };
 
@@ -430,7 +427,7 @@ use crate::{
 pub enum DyncordError {
     /// An error occurred when a command was invoked.
     #[error("An error occurred while running, or attempting to run, a command: {0}")]
-    Command(#[from] CommandError),
+    Interaction(#[from] CommandError),
 
     #[error("An error occurred while running an event handler: {0}")]
     Event(Arc<dyn Error + Send + Sync>),
@@ -463,7 +460,7 @@ impl DyncordError {
         T: Error + 'static,
     {
         match self {
-            DyncordError::Command(error) => match error {
+            DyncordError::Interaction(error) => match error {
                 CommandError::Arguments(error) => {
                     if let ArgumentError::Runtime(error) = error {
                         error.downcast_ref()
@@ -540,6 +537,8 @@ where
 
     /// The error occurred when a message command was called.
     MessageContext(Box<MessageContext<State>>),
+
+    ButtonContext(Box<ButtonContext<State>>),
 
     /// The error occurred while handling an event.
     ///
@@ -781,7 +780,7 @@ where
 pub(crate) async fn handle<State>(
     ctx: ErrorContext<State>,
     error: DyncordError,
-    handlers: &[Vec<Arc<dyn ErrorHandlerWithoutType<State>>>],
+    handlers: &[Arc<[Arc<dyn ErrorHandlerWithoutType<State>>]>],
 ) where
     State: StateBound,
 {
@@ -793,7 +792,7 @@ pub(crate) async fn handle<State>(
         for error in to_handle {
             let mut is_error_handled = false;
 
-            for handler in layer {
+            for handler in layer.iter() {
                 let result = handler.handle(ctx.clone(), error.clone()).await;
 
                 if let Err(error) = result {

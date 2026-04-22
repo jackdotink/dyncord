@@ -55,8 +55,8 @@ use twilight_model::application::interaction::application_command::{
     CommandDataOption, CommandOptionValue,
 };
 
-use crate::commands::errors::ArgumentError;
-use crate::commands::slash::context::SlashContext;
+use crate::interactions::errors::ArgumentError;
+use crate::interactions::slash::context::SlashContext;
 use crate::state::StateBound;
 use crate::utils::{DynFuture, pinbox};
 use crate::wrappers::types::channels::Channel;

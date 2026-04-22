@@ -1,7 +1,7 @@
 use twilight_model::application::command::Command;
 
-use crate::commands;
 use crate::events::{EventContext, Ready};
+use crate::interactions;
 use crate::state::StateBound;
 
 /// Registers interaction-based commands and command groups into the Discord API.
@@ -17,14 +17,14 @@ where
 
     let mut to_register: Vec<Command> = vec![];
 
-    for command in commands::flatten_slash(&ctx.handle.commands)
+    for command in interactions::flatten_slash(&ctx.handle.interactions)
         .into_iter()
         .cloned()
     {
         to_register.push(command.into());
     }
 
-    for command in commands::flatten_message(&ctx.handle.commands)
+    for command in interactions::flatten_message(&ctx.handle.interactions)
         .into_iter()
         .cloned()
     {

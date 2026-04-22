@@ -1,8 +1,8 @@
 use twilight_model::application::interaction::application_command::CommandData;
 use twilight_model::gateway::payload::incoming::InteractionCreate;
 
-use crate::commands::slash::SlashCommand;
 use crate::handle::Handle;
+use crate::interactions::slash::SlashCommand;
 use crate::state::StateBound;
 use crate::wrappers::actions::interaction_respond::{
     InteractionDeferReply, InteractionMessageReply,
@@ -52,7 +52,7 @@ where
     /// Returns:
     /// [`InteractionRespondWithDeferral`] - The interaction response builder. Await it to defer
     /// the response.
-    pub fn defer(&self) -> InteractionDeferReply {
+    pub fn defer_reply(&self) -> InteractionDeferReply {
         InteractionDeferReply::new(
             self.handle.client.clone(),
             self.event.application_id,

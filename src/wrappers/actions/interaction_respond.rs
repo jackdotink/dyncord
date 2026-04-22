@@ -160,7 +160,6 @@ pub struct InteractionMessageEdit {
     client: DiscordClient,
 
     application_id: Id<ApplicationMarker>,
-    interaction_id: Id<InteractionMarker>,
     interaction_token: String,
 
     components: Vec<Component>,
@@ -170,13 +169,11 @@ impl InteractionMessageEdit {
     pub(crate) fn new(
         client: DiscordClient,
         application_id: Id<ApplicationMarker>,
-        interaction_id: Id<InteractionMarker>,
         interaction_token: String,
     ) -> Self {
         Self {
             client,
             application_id,
-            interaction_id,
             interaction_token,
             components: Vec::new(),
         }
@@ -199,6 +196,55 @@ impl InteractionMessageEdit {
 }
 
 impl IntoFuture for InteractionMessageEdit {
+    type Output = Result<(), TwilightError>;
+    type IntoFuture = DynFuture<'static, Self::Output>;
+
+    fn into_future(self) -> Self::IntoFuture {
+        Box::pin(self.send())
+    }
+}
+
+pub struct InteractionDeferEdit {
+    client: DiscordClient,
+
+    application_id: Id<ApplicationMarker>,
+    interaction_id: Id<InteractionMarker>,
+    interaction_token: String,
+}
+
+impl InteractionDeferEdit {
+    pub(crate) fn new(
+        client: DiscordClient,
+        application_id: Id<ApplicationMarker>,
+        interaction_id: Id<InteractionMarker>,
+        interaction_token: String,
+    ) -> Self {
+        Self {
+            client,
+            application_id,
+            interaction_id,
+            interaction_token,
+        }
+    }
+
+    async fn send(self) -> Result<(), TwilightError> {
+        self.client
+            .interaction(self.application_id)
+            .create_response(
+                self.interaction_id,
+                &self.interaction_token,
+                &InteractionResponse {
+                    kind: InteractionResponseType::DeferredUpdateMessage,
+                    data: None,
+                },
+            )
+            .await?;
+
+        Ok(())
+    }
+}
+
+impl IntoFuture for InteractionDeferEdit {
     type Output = Result<(), TwilightError>;
     type IntoFuture = DynFuture<'static, Self::Output>;
 

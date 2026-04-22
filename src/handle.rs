@@ -35,8 +35,8 @@ use twilight_model::id::marker::ChannelMarker;
 
 use crate::aliases::DiscordClient;
 use crate::cache::Cache;
-use crate::commands::CommandNode;
 use crate::errors::ErrorHandlerWithoutType;
+use crate::interactions::InteractionNode;
 use crate::state::StateBound;
 use crate::wrappers::TwilightError;
 use crate::wrappers::actions::message_create::MessageCreate;
@@ -54,10 +54,10 @@ where
     pub(crate) client: DiscordClient,
 
     /// The bot's commands.
-    pub commands: Arc<Vec<CommandNode<State>>>,
+    pub interactions: Arc<[InteractionNode<State>]>,
 
     /// The top-level error handler.
-    pub(crate) on_errors: Vec<Arc<dyn ErrorHandlerWithoutType<State>>>,
+    pub(crate) on_errors: Arc<[Arc<dyn ErrorHandlerWithoutType<State>>]>,
 
     /// The cache in use, if any.
     pub cache: Option<Arc<dyn Cache>>,

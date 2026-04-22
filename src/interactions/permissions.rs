@@ -165,9 +165,7 @@ where
             Event::InteractionCreate(event) => {
                 match (&event.user, &event.member) {
                     (Some(user), None) => Some(user.clone().into()),
-                    (None, Some(member)) => {
-                        member.user.as_ref().map(|user| user.clone().into())
-                    }
+                    (None, Some(member)) => member.user.as_ref().map(|user| user.clone().into()),
                     _ => {
                         // Discord sent neither a user nor a member.
                         None

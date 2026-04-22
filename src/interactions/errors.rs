@@ -20,7 +20,7 @@
 use std::error::Error;
 use std::sync::Arc;
 
-use crate::commands::permissions::PermissionError;
+use crate::interactions::permissions::PermissionError;
 
 /// An error that occurred when a command was called.
 #[derive(Debug, thiserror::Error, Clone)]

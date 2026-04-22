@@ -1,68 +1,68 @@
 //! Message context menu commands.
-//! 
+//!
 //! Message commands are one of the simplest command types there are to work with in Discord.
 //! They're shown as an option of a message's context menu<sup>1</sup>, don't require a
 //! description, and don't take arguments other than the message they were called on.
-//! 
+//!
 //! > <sup>1</sup> Context menus are the pop-ups that appear with multiple options when you right
 //! > click on a message on desktop, or when you press and hold a message on mobile. [Click here
 //! > to see a screenshot of one](https://files.catbox.moe/5azefu.png).
-//! 
+//!
 //! # Quick Start
-//! 
+//!
 //! Let's make a simple message command that repeats the message sent. To start with, we have to
 //! define our command handler function. All message command handler functions take two arguments,
 //! [`MessageContext`] and [`Message`]. Our handler then will look like follows:
-//! 
+//!
 //! ```
 //! async fn echo(ctx: MessageContext, message: Message) {
 //!     // Our code will go here.
 //! }
 //! ```
-//! 
+//!
 //! Great! Now, let's register it in a new [`Bot`](crate::Bot).
-//! 
+//!
 //! ```
 //! let bot = Bot::new(()).command(Command::message("Echo Message Content", echo));
-//! 
+//!
 //! bot.run("token").await.unwrap();
 //! ```
-//! 
+//!
 //! Run the bot and send a message in a server where the bot is. Right click on the message, go
 //! in "Apps", and in your bot's name option you'll see an "Echo Message Content" option. Well
 //! done!
-//! 
+//!
 //! Now, if we try to click on that option, Discord will show an error. That's because we have to
 //! respond to the command call for Discord to know we actually received that command call. Let's
 //! do so by echoing the message the command was called on.
-//! 
+//!
 //! ```
 //! async fn echo(ctx: MessageContext, message: Message) {
 //!     ctx.respond(message.content).await.unwrap();
 //! }
 //! ```
-//! 
+//!
 //! Try re-running your command, and now you'll see your bot now responds with the same message
 //! content you run the command on. Great!
-//! 
+//!
 //! ## Proper Error Handling
-//! 
+//!
 //! As a small tweak, it's better for error handling not to panic if responding ever fails. After
 //! all, it's a network call, and it's quite common for those to fail every now and then. Let's add
 //! a proper [`Result`] return value to our handler.
-//! 
+//!
 //! ```
 //! async fn echo(ctx: MessageContext, message: Message) -> Result<(), TwilightError> {
 //!     ctx.respond(message.content).await?;
-//! 
+//!
 //!     Ok(())
 //! }
 //! ```
-//! 
+//!
 //! Great. For context, [`TwilightError`](crate::wrappers::TwilightError) is the error type
 //! returned when a Discord API call fails. It's called `TwilightError` because it's a wrapper over
 //! errors returned by [`twilight_http`], which is the library Dyncord is built on.
-//! 
+//!
 //! You can return practically any error type as long as it follows some bounds. Returning
 //! [`Result`] is always better than panicking, and handling errors is explained in depth in
 //! [the `errors` module](crate::errors). Go check it out to learn about error handling.
@@ -78,11 +78,11 @@ use twilight_model::application::command::{Command as TwilightCommand, CommandTy
 pub use twilight_model::channel::Message;
 use twilight_model::id::Id;
 
-use crate::commands::errors::{ArgumentError, CommandError};
-use crate::commands::message::context::MessageContext;
-use crate::commands::permissions::{PermissionChecker, PermissionContext};
-use crate::commands::{CommandGroupIntoCommandNode, CommandNode, CommandResult};
 use crate::errors::{ErrorHandler, ErrorHandlerWithoutType, ErrorHandlerWrapper};
+use crate::interactions::errors::{ArgumentError, CommandError};
+use crate::interactions::message::context::MessageContext;
+use crate::interactions::permissions::{PermissionChecker, PermissionContext};
+use crate::interactions::{CommandGroupIntoInteractionNode, InteractionNode, InteractionResult};
 use crate::state::StateBound;
 use crate::utils::DynFuture;
 
@@ -97,7 +97,7 @@ where
 
     handler: Arc<dyn MessageCommandHandler<State>>,
 
-    on_errors: Vec<Arc<dyn ErrorHandlerWithoutType<State>>>,
+    on_errors: Arc<[Arc<dyn ErrorHandlerWithoutType<State>>]>,
 
     checks: Vec<Arc<dyn PermissionChecker<State>>>,
 }
@@ -116,7 +116,7 @@ where
     /// Returns:
     /// [`Result<(), CommandError>`] - Nothing, or an error if an error was raised when running the
     /// command.
-    pub(crate) async fn run(&self, ctx: MessageContext<State>) -> CommandResult {
+    pub(crate) async fn run(&self, ctx: MessageContext<State>) -> InteractionResult {
         let permission_ctx = PermissionContext {
             event: Event::InteractionCreate(Box::new(ctx.event.clone())),
             handle: ctx.handle.clone(),
@@ -237,7 +237,7 @@ where
             name: self.name,
             name_i18n: self.name_i18n,
             handler: self.handler,
-            on_errors: self.on_errors,
+            on_errors: Arc::from(self.on_errors),
             checks: self.checks,
         }
     }
@@ -248,7 +248,7 @@ pub trait MessageCommandHandler<State>: Send + Sync
 where
     State: StateBound,
 {
-    fn run(&self, ctx: MessageContext<State>) -> DynFuture<'_, CommandResult>;
+    fn run(&self, ctx: MessageContext<State>) -> DynFuture<'_, InteractionResult>;
 }
 
 impl<State, Func, Fut, Res> MessageCommandHandler<State> for Func
@@ -257,7 +257,7 @@ where
     Func: Fn(MessageContext<State>, Message) -> Fut + Send + Sync,
     Fut: Future<Output = Res> + Send,
 {
-    fn run(&self, ctx: MessageContext<State>) -> DynFuture<'_, CommandResult> {
+    fn run(&self, ctx: MessageContext<State>) -> DynFuture<'_, InteractionResult> {
         Box::pin(async move {
             let message_id = ctx
                 .event_data
@@ -282,7 +282,6 @@ where
 }
 
 /// A group of message commands.
-#[derive(Clone)]
 pub struct MessageCommandGroup<State>
 where
     State: StateBound,
@@ -291,10 +290,10 @@ where
     pub name: String,
 
     /// The command group's subcommands and subgroups.
-    pub children: Vec<CommandNode<State>>,
+    pub children: Vec<InteractionNode<State>>,
 
     /// Error handlers scoped to this group.
-    pub on_errors: Vec<Arc<dyn ErrorHandlerWithoutType<State>>>,
+    pub on_errors: Arc<[Arc<dyn ErrorHandlerWithoutType<State>>]>,
 }
 
 impl<State> MessageCommandGroup<State>
@@ -307,13 +306,12 @@ where
 }
 
 /// A message command group builder, which allows setting extra metadata.
-#[derive(Clone)]
 pub struct MessageCommandGroupBuilder<State>
 where
     State: StateBound,
 {
     name: String,
-    children: Vec<CommandNode<State>>,
+    children: Vec<InteractionNode<State>>,
     on_errors: Vec<Arc<dyn ErrorHandlerWithoutType<State>>>,
 }
 
@@ -338,7 +336,7 @@ where
     /// [`MessageCommandGroupBuilder`] - The current builder, with the command set.
     pub fn command(mut self, command: impl Into<MessageCommand<State>>) -> Self {
         self.children
-            .push(CommandNode::MessageCommand(command.into()));
+            .push(InteractionNode::MessageCommand(command.into()));
         self
     }
 
@@ -351,7 +349,7 @@ where
     /// [`MessageCommandGroupBuilder`] - The current builder with the nested group.
     pub fn nest(mut self, group: impl Into<MessageCommandGroup<State>>) -> Self {
         self.children
-            .push(CommandNode::MessageCommandGroup(group.into()));
+            .push(InteractionNode::MessageCommandGroup(group.into()));
         self
     }
 
@@ -375,25 +373,25 @@ where
         MessageCommandGroup {
             name: self.name,
             children: self.children,
-            on_errors: self.on_errors,
+            on_errors: Arc::from(self.on_errors),
         }
     }
 }
 
-impl<State> CommandGroupIntoCommandNode<State> for MessageCommandGroup<State>
+impl<State> CommandGroupIntoInteractionNode<State> for MessageCommandGroup<State>
 where
     State: StateBound,
 {
-    fn into_command_node(self) -> CommandNode<State> {
-        CommandNode::MessageCommandGroup(self)
+    fn into_interaction_node(self) -> InteractionNode<State> {
+        InteractionNode::MessageCommandGroup(self)
     }
 }
 
-impl<State> CommandGroupIntoCommandNode<State> for MessageCommandGroupBuilder<State>
+impl<State> CommandGroupIntoInteractionNode<State> for MessageCommandGroupBuilder<State>
 where
     State: StateBound,
 {
-    fn into_command_node(self) -> CommandNode<State> {
-        CommandNode::MessageCommandGroup(self.build())
+    fn into_interaction_node(self) -> InteractionNode<State> {
+        InteractionNode::MessageCommandGroup(self.build())
     }
 }

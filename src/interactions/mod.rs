@@ -248,20 +248,25 @@ pub mod slash;
 
 use std::{error::Error, sync::Arc};
 
-use crate::commands::errors::CommandError;
-use crate::commands::message::{
-    MessageCommand, MessageCommandBuilder, MessageCommandGroup, MessageCommandGroupBuilder,
-    MessageCommandHandler,
+use crate::interactions::{component::button::ButtonComponent, errors::CommandError};
+use crate::interactions::{
+    component::button::ButtonComponentBuilder,
+    message::{
+        MessageCommand, MessageCommandBuilder, MessageCommandGroup, MessageCommandGroupBuilder,
+        MessageCommandHandler,
+    },
 };
-use crate::commands::slash::{
-    SlashCommand, SlashCommandBuilder, SlashCommandGroup, SlashCommandGroupBuilder,
-    SlashCommandHandler,
+use crate::interactions::{
+    component::button::ButtonComponentHandler,
+    slash::{
+        SlashCommand, SlashCommandBuilder, SlashCommandGroup, SlashCommandGroupBuilder,
+        SlashCommandHandler,
+    },
 };
 use crate::state::StateBound;
 
 /// Either a command or a command group.
-#[derive(Clone)]
-pub enum CommandNode<State>
+pub enum InteractionNode<State>
 where
     State: StateBound,
 {
@@ -269,10 +274,11 @@ where
     SlashCommandGroup(SlashCommandGroup<State>),
     MessageCommand(MessageCommand<State>),
     MessageCommandGroup(MessageCommandGroup<State>),
+    ButtonComponent(ButtonComponent<State>),
 }
 
 /// Converts all command types and their builder types into [`CommandNode`]s.
-pub trait CommandIntoCommandNode<State>
+pub trait InteractionIntoInteractionNode<State>
 where
     State: StateBound,
 {
@@ -280,42 +286,60 @@ where
     ///
     /// Returns:
     /// [`CommandNode`] - The resulting command node.
-    fn into_command_node(self) -> CommandNode<State>;
+    fn into_interaction_node(self) -> InteractionNode<State>;
 }
 
-impl<State> CommandIntoCommandNode<State> for SlashCommand<State>
+impl<State> InteractionIntoInteractionNode<State> for SlashCommand<State>
 where
     State: StateBound,
 {
-    fn into_command_node(self) -> CommandNode<State> {
-        CommandNode::SlashCommand(self)
+    fn into_interaction_node(self) -> InteractionNode<State> {
+        InteractionNode::SlashCommand(self)
     }
 }
 
-impl<State> CommandIntoCommandNode<State> for SlashCommandBuilder<State>
+impl<State> InteractionIntoInteractionNode<State> for SlashCommandBuilder<State>
 where
     State: StateBound,
 {
-    fn into_command_node(self) -> CommandNode<State> {
-        CommandNode::SlashCommand(self.build())
+    fn into_interaction_node(self) -> InteractionNode<State> {
+        InteractionNode::SlashCommand(self.build())
     }
 }
 
-impl<State> CommandIntoCommandNode<State> for MessageCommand<State>
+impl<State> InteractionIntoInteractionNode<State> for MessageCommand<State>
 where
     State: StateBound,
 {
-    fn into_command_node(self) -> CommandNode<State> {
-        CommandNode::MessageCommand(self)
+    fn into_interaction_node(self) -> InteractionNode<State> {
+        InteractionNode::MessageCommand(self)
     }
 }
 
-impl<State> CommandIntoCommandNode<State> for MessageCommandBuilder<State>
+impl<State> InteractionIntoInteractionNode<State> for MessageCommandBuilder<State>
 where
     State: StateBound,
 {
-    fn into_command_node(self) -> CommandNode<State> {
-        CommandNode::MessageCommand(self.build())
+    fn into_interaction_node(self) -> InteractionNode<State> {
+        InteractionNode::MessageCommand(self.build())
+    }
+}
+
+impl<State> InteractionIntoInteractionNode<State> for ButtonComponent<State>
+where
+    State: StateBound,
+{
+    fn into_interaction_node(self) -> InteractionNode<State> {
+        InteractionNode::ButtonComponent(self)
+    }
+}
+
+impl<State> InteractionIntoInteractionNode<State> for ButtonComponentBuilder<State>
+where
+    State: StateBound,
+{
+    fn into_interaction_node(self) -> InteractionNode<State> {
+        InteractionNode::ButtonComponent(self.build())
     }
 }
 
@@ -323,9 +347,9 @@ where
 ///
 /// This type's associated functions initialize specialized command types depending on what type is
 /// being initialized. This type does not represent a command directly.
-pub struct Command;
+pub struct Interaction;
 
-impl Command {
+impl Interaction {
     /// Creates a new slash command builder with the given name and handler.
     ///
     /// Arguments:
@@ -357,6 +381,14 @@ impl Command {
         State: StateBound,
     {
         MessageCommandBuilder::new(name.into(), handler)
+    }
+
+    pub fn button<State, F>(handler: F) -> ButtonComponentBuilder<State>
+    where
+        F: ButtonComponentHandler<State> + 'static,
+        State: StateBound,
+    {
+        ButtonComponentBuilder::new(handler)
     }
 }
 
@@ -397,7 +429,7 @@ impl CommandGroup {
 }
 
 /// Converts all command group types and their builder types into a command node.
-pub trait CommandGroupIntoCommandNode<State>
+pub trait CommandGroupIntoInteractionNode<State>
 where
     State: StateBound,
 {
@@ -405,7 +437,7 @@ where
     ///
     /// Returns:
     /// [`CommandNode`] - The resulting command node.
-    fn into_command_node(self) -> CommandNode<State>;
+    fn into_interaction_node(self) -> InteractionNode<State>;
 }
 
 /// Flattens a [`CommandNode`] tree into a list of [`SlashCommand`]s.
@@ -415,7 +447,7 @@ where
 ///
 /// Returns:
 /// [`Vec<SlashCommand>`] - A list of all the commands in the tree.
-pub fn flatten_slash<State>(nodes: &[CommandNode<State>]) -> Vec<&SlashCommand<State>>
+pub fn flatten_slash<State>(nodes: &[InteractionNode<State>]) -> Vec<&SlashCommand<State>>
 where
     State: StateBound,
 {
@@ -423,8 +455,8 @@ where
 
     for node in nodes {
         match node {
-            CommandNode::SlashCommand(command) => commands.push(command),
-            CommandNode::SlashCommandGroup(group) => {
+            InteractionNode::SlashCommand(command) => commands.push(command),
+            InteractionNode::SlashCommandGroup(group) => {
                 commands.extend(flatten_slash(&group.children))
             }
             _ => {}
@@ -441,7 +473,7 @@ where
 ///
 /// Returns:
 /// [`Vec<MessageCommand>`] - A list of all the commands in the tree.
-pub fn flatten_message<State>(nodes: &[CommandNode<State>]) -> Vec<&MessageCommand<State>>
+pub fn flatten_message<State>(nodes: &[InteractionNode<State>]) -> Vec<&MessageCommand<State>>
 where
     State: StateBound,
 {
@@ -449,8 +481,8 @@ where
 
     for node in nodes {
         match node {
-            CommandNode::MessageCommand(command) => commands.push(command),
-            CommandNode::MessageCommandGroup(group) => {
+            InteractionNode::MessageCommand(command) => commands.push(command),
+            InteractionNode::MessageCommandGroup(group) => {
                 commands.extend(flatten_message(&group.children))
             }
             _ => {}
@@ -470,14 +502,14 @@ where
 /// Returns:
 /// [`Vec<SlashCommand>`] - A list of all the slash commands in the list of nodes, excluding
 /// sub-commands in command groups.
-pub fn get_slash_commands<State>(nodes: &[CommandNode<State>]) -> Vec<&SlashCommand<State>>
+pub fn get_slash_commands<State>(nodes: &[InteractionNode<State>]) -> Vec<&SlashCommand<State>>
 where
     State: StateBound,
 {
     let mut commands = Vec::new();
 
     for node in nodes {
-        if let CommandNode::SlashCommand(command) = node {
+        if let InteractionNode::SlashCommand(command) = node {
             commands.push(command);
         }
     }
@@ -495,19 +527,36 @@ where
 /// Returns:
 /// [`Vec<MessageCommand>`] - A list of all the message commands in the list of nodes, excluding
 /// sub-commands in command groups.
-pub fn get_message_commands<State>(nodes: &[CommandNode<State>]) -> Vec<&MessageCommand<State>>
+pub fn get_message_commands<State>(nodes: &[InteractionNode<State>]) -> Vec<&MessageCommand<State>>
 where
     State: StateBound,
 {
     let mut commands = Vec::new();
 
     for node in nodes {
-        if let CommandNode::MessageCommand(command) = node {
+        if let InteractionNode::MessageCommand(command) = node {
             commands.push(command);
         }
     }
 
     commands
+}
+
+pub fn get_button_components<State>(
+    nodes: &[InteractionNode<State>],
+) -> Vec<&ButtonComponent<State>>
+where
+    State: StateBound,
+{
+    let mut components = Vec::new();
+
+    for node in nodes {
+        if let InteractionNode::ButtonComponent(component) = node {
+            components.push(component);
+        }
+    }
+
+    components
 }
 
 /// Returns all the slash command groups in a list of [`CommandNode`]s.
@@ -521,14 +570,14 @@ where
 /// Returns:
 /// [`Vec<SlashCommandGroup>`] - A list of all the slash command groups in the list of nodes,
 /// excluding sub-groups in command groups.
-pub fn get_slash_groups<State>(nodes: &[CommandNode<State>]) -> Vec<&SlashCommandGroup<State>>
+pub fn get_slash_groups<State>(nodes: &[InteractionNode<State>]) -> Vec<&SlashCommandGroup<State>>
 where
     State: StateBound,
 {
     let mut groups = Vec::new();
 
     for node in nodes {
-        if let CommandNode::SlashCommandGroup(group) = node {
+        if let InteractionNode::SlashCommandGroup(group) = node {
             groups.push(group);
         }
     }
@@ -547,14 +596,16 @@ where
 /// Returns:
 /// [`Vec<MessageCommandGroup>`] - A list of all the message command groups in the list of nodes,
 /// excluding sub-groups in command groups.
-pub fn get_message_groups<State>(nodes: &[CommandNode<State>]) -> Vec<&MessageCommandGroup<State>>
+pub fn get_message_groups<State>(
+    nodes: &[InteractionNode<State>],
+) -> Vec<&MessageCommandGroup<State>>
 where
     State: StateBound,
 {
     let mut groups = Vec::new();
 
     for node in nodes {
-        if let CommandNode::MessageCommandGroup(group) = node {
+        if let InteractionNode::MessageCommandGroup(group) = node {
             groups.push(group);
         }
     }
@@ -563,32 +614,32 @@ where
 }
 
 /// The result of running a command.
-pub type CommandResult = Result<(), CommandError>;
+pub type InteractionResult = Result<(), CommandError>;
 
-pub trait IntoCommandResult {
-    fn into_command_result(self) -> CommandResult;
+pub trait IntoInteractionResult {
+    fn into_interaction_result(self) -> InteractionResult;
 }
 
-impl<T> IntoCommandResult for T
+impl<T> IntoInteractionResult for T
 where
     T: Into<CommandError>,
 {
-    fn into_command_result(self) -> CommandResult {
+    fn into_interaction_result(self) -> InteractionResult {
         Err(self.into())
     }
 }
 
-impl IntoCommandResult for () {
-    fn into_command_result(self) -> CommandResult {
+impl IntoInteractionResult for () {
+    fn into_interaction_result(self) -> InteractionResult {
         Ok(())
     }
 }
 
-impl<T, E> IntoCommandResult for Result<T, E>
+impl<T, E> IntoInteractionResult for Result<T, E>
 where
     E: Error + Send + Sync + 'static,
 {
-    fn into_command_result(self) -> CommandResult {
+    fn into_interaction_result(self) -> InteractionResult {
         self.map(|_| ())
             .map_err(|e| CommandError::Runtime(Arc::new(e)))
     }

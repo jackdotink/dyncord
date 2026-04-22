@@ -5,7 +5,7 @@
 //! - [`is_in_dms`] - Only runs the command if run in DMs.
 //! - [`is_in_server`] - Only runs the command if run in a server.
 
-use crate::commands::permissions::PermissionContext;
+use crate::interactions::permissions::PermissionContext;
 
 /// The command was not run in DMs.
 #[derive(Debug, thiserror::Error)]

@@ -204,15 +204,15 @@ use twilight_model::application::command::{Command, CommandType};
 use twilight_model::application::interaction::application_command::CommandDataOption;
 use twilight_model::id::Id;
 
-use crate::commands::permissions::{PermissionChecker, PermissionContext};
-use crate::commands::slash::arguments::{ArgumentMeta, ArgumentType, IntoArgument};
-use crate::commands::slash::context::SlashContext;
-use crate::commands::{CommandGroupIntoCommandNode, CommandNode, CommandResult};
-use crate::commands::{
-    IntoCommandResult,
+use crate::errors::{ErrorHandler, ErrorHandlerWithoutType, ErrorHandlerWrapper};
+use crate::interactions::permissions::{PermissionChecker, PermissionContext};
+use crate::interactions::slash::arguments::{ArgumentMeta, ArgumentType, IntoArgument};
+use crate::interactions::slash::context::SlashContext;
+use crate::interactions::{CommandGroupIntoInteractionNode, InteractionNode, InteractionResult};
+use crate::interactions::{
+    IntoInteractionResult,
     errors::{ArgumentError, CommandError},
 };
-use crate::errors::{ErrorHandler, ErrorHandlerWithoutType, ErrorHandlerWrapper};
 use crate::state::StateBound;
 use crate::utils::DynFuture;
 
@@ -232,7 +232,7 @@ where
 
     arguments: Vec<ArgumentMeta>,
 
-    on_errors: Vec<Arc<dyn ErrorHandlerWithoutType<State>>>,
+    on_errors: Arc<[Arc<dyn ErrorHandlerWithoutType<State>>]>,
 
     checks: Vec<Arc<dyn PermissionChecker<State>>>,
 }
@@ -251,7 +251,7 @@ where
     /// Returns:
     /// [`Result<(), CommandError>`] - Nothing, or an error if an error was raised when running the
     /// command.
-    pub(crate) async fn run(&self, ctx: SlashContext<State>) -> CommandResult {
+    pub(crate) async fn run(&self, ctx: SlashContext<State>) -> InteractionResult {
         let permission_ctx = PermissionContext {
             event: Event::InteractionCreate(Box::new(ctx.event.clone())),
             handle: ctx.handle.clone(),
@@ -451,7 +451,7 @@ where
             description_i18n: self.description_i18n,
             handler: self.handler,
             arguments: self.arguments,
-            on_errors: self.on_errors,
+            on_errors: Arc::from(self.on_errors),
             checks: self.checks,
         }
     }
@@ -471,7 +471,7 @@ where
     /// Returns:
     /// [`CommandResult`] - A future that resolves when the command handler has finished executing.
     /// This is equivalent to an asynchronous function, so you can just run `.run().await`.
-    fn run(&self, ctx: SlashContext<State>) -> DynFuture<'_, CommandResult>;
+    fn run(&self, ctx: SlashContext<State>) -> DynFuture<'_, InteractionResult>;
 
     /// Returns the arguments the command handler actually takes.
     ///
@@ -489,10 +489,10 @@ where
     State: StateBound,
     Func: Fn(SlashContext<State>) -> Fut + Send + Sync,
     Fut: Future<Output = Res> + Send,
-    Res: IntoCommandResult,
+    Res: IntoInteractionResult,
 {
-    fn run(&self, ctx: SlashContext<State>) -> DynFuture<'_, CommandResult> {
-        Box::pin(async move { self(ctx).await.into_command_result() })
+    fn run(&self, ctx: SlashContext<State>) -> DynFuture<'_, InteractionResult> {
+        Box::pin(async move { self(ctx).await.into_interaction_result() })
     }
 
     fn argument_types(&self) -> Vec<(ArgumentType, bool)> {
@@ -534,16 +534,16 @@ where
     State: StateBound,
     Func: Fn(SlashContext<State>, A) -> Fut + Send + Sync,
     Fut: Future<Output = Res> + Send,
-    Res: IntoCommandResult,
+    Res: IntoInteractionResult,
     A: IntoArgument<State>,
 {
-    fn run(&self, ctx: SlashContext<State>) -> DynFuture<'_, CommandResult> {
+    fn run(&self, ctx: SlashContext<State>) -> DynFuture<'_, InteractionResult> {
         Box::pin(async move {
             let options = ctx.event_data.options.clone();
 
             let a = parse_arg(ctx.clone(), &options, 0).await?;
 
-            self(ctx, a).await.into_command_result()
+            self(ctx, a).await.into_interaction_result()
         })
     }
 
@@ -557,18 +557,18 @@ where
     State: StateBound,
     Func: Fn(SlashContext<State>, A, B) -> Fut + Send + Sync,
     Fut: Future<Output = Res> + Send,
-    Res: IntoCommandResult,
+    Res: IntoInteractionResult,
     A: IntoArgument<State>,
     B: IntoArgument<State>,
 {
-    fn run(&self, ctx: SlashContext<State>) -> DynFuture<'_, CommandResult> {
+    fn run(&self, ctx: SlashContext<State>) -> DynFuture<'_, InteractionResult> {
         Box::pin(async move {
             let options = ctx.event_data.options.clone();
 
             let a = parse_arg(ctx.clone(), &options, 0).await?;
             let b = parse_arg(ctx.clone(), &options, 1).await?;
 
-            self(ctx, a, b).await.into_command_result()
+            self(ctx, a, b).await.into_interaction_result()
         })
     }
 
@@ -582,12 +582,12 @@ where
     State: StateBound,
     Func: Fn(SlashContext<State>, A, B, C) -> Fut + Send + Sync,
     Fut: Future<Output = Res> + Send,
-    Res: IntoCommandResult,
+    Res: IntoInteractionResult,
     A: IntoArgument<State>,
     B: IntoArgument<State>,
     C: IntoArgument<State>,
 {
-    fn run(&self, ctx: SlashContext<State>) -> DynFuture<'_, CommandResult> {
+    fn run(&self, ctx: SlashContext<State>) -> DynFuture<'_, InteractionResult> {
         Box::pin(async move {
             let options = ctx.event_data.options.clone();
 
@@ -595,7 +595,7 @@ where
             let b = parse_arg(ctx.clone(), &options, 1).await?;
             let c = parse_arg(ctx.clone(), &options, 2).await?;
 
-            self(ctx, a, b, c).await.into_command_result()
+            self(ctx, a, b, c).await.into_interaction_result()
         })
     }
 
@@ -609,13 +609,13 @@ where
     State: StateBound,
     Func: Fn(SlashContext<State>, A, B, C, D) -> Fut + Send + Sync,
     Fut: Future<Output = Res> + Send,
-    Res: IntoCommandResult,
+    Res: IntoInteractionResult,
     A: IntoArgument<State>,
     B: IntoArgument<State>,
     C: IntoArgument<State>,
     D: IntoArgument<State>,
 {
-    fn run(&self, ctx: SlashContext<State>) -> DynFuture<'_, CommandResult> {
+    fn run(&self, ctx: SlashContext<State>) -> DynFuture<'_, InteractionResult> {
         Box::pin(async move {
             let options = ctx.event_data.options.clone();
 
@@ -624,7 +624,7 @@ where
             let c = parse_arg(ctx.clone(), &options, 2).await?;
             let d = parse_arg(ctx.clone(), &options, 3).await?;
 
-            self(ctx, a, b, c, d).await.into_command_result()
+            self(ctx, a, b, c, d).await.into_interaction_result()
         })
     }
 
@@ -638,14 +638,14 @@ where
     State: StateBound,
     Func: Fn(SlashContext<State>, A, B, C, D, E) -> Fut + Send + Sync,
     Fut: Future<Output = Res> + Send,
-    Res: IntoCommandResult,
+    Res: IntoInteractionResult,
     A: IntoArgument<State>,
     B: IntoArgument<State>,
     C: IntoArgument<State>,
     D: IntoArgument<State>,
     E: IntoArgument<State>,
 {
-    fn run(&self, ctx: SlashContext<State>) -> DynFuture<'_, CommandResult> {
+    fn run(&self, ctx: SlashContext<State>) -> DynFuture<'_, InteractionResult> {
         Box::pin(async move {
             let options = ctx.event_data.options.clone();
 
@@ -655,7 +655,7 @@ where
             let d = parse_arg(ctx.clone(), &options, 3).await?;
             let e = parse_arg(ctx.clone(), &options, 4).await?;
 
-            self(ctx, a, b, c, d, e).await.into_command_result()
+            self(ctx, a, b, c, d, e).await.into_interaction_result()
         })
     }
 
@@ -676,7 +676,7 @@ where
     State: StateBound,
     Func: Fn(SlashContext<State>, A, B, C, D, E, F) -> Fut + Send + Sync,
     Fut: Future<Output = Res> + Send,
-    Res: IntoCommandResult,
+    Res: IntoInteractionResult,
     A: IntoArgument<State>,
     B: IntoArgument<State>,
     C: IntoArgument<State>,
@@ -684,7 +684,7 @@ where
     E: IntoArgument<State>,
     F: IntoArgument<State>,
 {
-    fn run(&self, ctx: SlashContext<State>) -> DynFuture<'_, CommandResult> {
+    fn run(&self, ctx: SlashContext<State>) -> DynFuture<'_, InteractionResult> {
         Box::pin(async move {
             let options = ctx.event_data.options.clone();
 
@@ -695,7 +695,7 @@ where
             let e = parse_arg(ctx.clone(), &options, 4).await?;
             let f = parse_arg(ctx.clone(), &options, 5).await?;
 
-            self(ctx, a, b, c, d, e, f).await.into_command_result()
+            self(ctx, a, b, c, d, e, f).await.into_interaction_result()
         })
     }
 
@@ -744,7 +744,7 @@ where
     ///
     /// Returns:
     /// [`CommandResult`] - The result of running, or attempting to run, the command handler.
-    fn run(&self, ctx: SlashContext<State>) -> DynFuture<'_, CommandResult>;
+    fn run(&self, ctx: SlashContext<State>) -> DynFuture<'_, InteractionResult>;
 
     /// A vector of argument types taken by this handler.
     ///
@@ -761,7 +761,7 @@ where
     F: SlashCommandHandler<State, Args>,
     Args: Send + Sync,
 {
-    fn run(&self, ctx: SlashContext<State>) -> DynFuture<'_, CommandResult> {
+    fn run(&self, ctx: SlashContext<State>) -> DynFuture<'_, InteractionResult> {
         SlashCommandHandler::run(&self.handler, ctx)
     }
 
@@ -771,7 +771,6 @@ where
 }
 
 /// A group of slash commands.
-#[derive(Clone)]
 pub struct SlashCommandGroup<State>
 where
     State: StateBound,
@@ -780,10 +779,10 @@ where
     pub name: String,
 
     /// The command group's subcommands and subgroups.
-    pub children: Vec<CommandNode<State>>,
+    pub children: Vec<InteractionNode<State>>,
 
     /// Error handlers scoped to this group.
-    pub on_errors: Vec<Arc<dyn ErrorHandlerWithoutType<State>>>,
+    pub on_errors: Arc<[Arc<dyn ErrorHandlerWithoutType<State>>]>,
 }
 
 impl<State> SlashCommandGroup<State>
@@ -796,13 +795,12 @@ where
 }
 
 /// A slash command group builder, which allows setting extra metadata.
-#[derive(Clone)]
 pub struct SlashCommandGroupBuilder<State>
 where
     State: StateBound,
 {
     name: String,
-    children: Vec<CommandNode<State>>,
+    children: Vec<InteractionNode<State>>,
     on_errors: Vec<Arc<dyn ErrorHandlerWithoutType<State>>>,
 }
 
@@ -827,7 +825,7 @@ where
     /// [`SlashCommandGroupBuilder`] - The current builder, with the command set.
     pub fn command(mut self, command: impl Into<SlashCommand<State>>) -> Self {
         self.children
-            .push(CommandNode::SlashCommand(command.into()));
+            .push(InteractionNode::SlashCommand(command.into()));
         self
     }
 
@@ -840,7 +838,7 @@ where
     /// [`SlashCommandGroupBuilder`] - The current builder with the nested group.
     pub fn nest(mut self, group: impl Into<SlashCommandGroup<State>>) -> Self {
         self.children
-            .push(CommandNode::SlashCommandGroup(group.into()));
+            .push(InteractionNode::SlashCommandGroup(group.into()));
         self
     }
 
@@ -864,26 +862,26 @@ where
         SlashCommandGroup {
             name: self.name,
             children: self.children,
-            on_errors: self.on_errors,
+            on_errors: Arc::from(self.on_errors),
         }
     }
 }
 
-impl<State> CommandGroupIntoCommandNode<State> for SlashCommandGroup<State>
+impl<State> CommandGroupIntoInteractionNode<State> for SlashCommandGroup<State>
 where
     State: StateBound,
 {
-    fn into_command_node(self) -> CommandNode<State> {
-        CommandNode::SlashCommandGroup(self)
+    fn into_interaction_node(self) -> InteractionNode<State> {
+        InteractionNode::SlashCommandGroup(self)
     }
 }
 
-impl<State> CommandGroupIntoCommandNode<State> for SlashCommandGroupBuilder<State>
+impl<State> CommandGroupIntoInteractionNode<State> for SlashCommandGroupBuilder<State>
 where
     State: StateBound,
 {
-    fn into_command_node(self) -> CommandNode<State> {
-        CommandNode::SlashCommandGroup(self.build())
+    fn into_interaction_node(self) -> InteractionNode<State> {
+        InteractionNode::SlashCommandGroup(self.build())
     }
 }
 
