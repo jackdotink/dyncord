@@ -155,3 +155,54 @@ impl IntoFuture for InteractionDeferReply {
         Box::pin(self.send())
     }
 }
+
+pub struct InteractionMessageEdit {
+    client: DiscordClient,
+
+    application_id: Id<ApplicationMarker>,
+    interaction_id: Id<InteractionMarker>,
+    interaction_token: String,
+
+    components: Vec<Component>,
+}
+
+impl InteractionMessageEdit {
+    pub(crate) fn new(
+        client: DiscordClient,
+        application_id: Id<ApplicationMarker>,
+        interaction_id: Id<InteractionMarker>,
+        interaction_token: String,
+    ) -> Self {
+        Self {
+            client,
+            application_id,
+            interaction_id,
+            interaction_token,
+            components: Vec::new(),
+        }
+    }
+
+    pub fn component(mut self, component: impl Into<Component>) -> Self {
+        self.components.push(component.into());
+        self
+    }
+
+    async fn send(self) -> Result<(), TwilightError> {
+        self.client
+            .interaction(self.application_id)
+            .update_response(&self.interaction_token)
+            .components(Some(&self.components))
+            .await?;
+
+        Ok(())
+    }
+}
+
+impl IntoFuture for InteractionMessageEdit {
+    type Output = Result<(), TwilightError>;
+    type IntoFuture = DynFuture<'static, Self::Output>;
+
+    fn into_future(self) -> Self::IntoFuture {
+        Box::pin(self.send())
+    }
+}
