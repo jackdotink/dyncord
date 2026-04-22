@@ -239,11 +239,14 @@
 //! [`message` module's documentation](message). It has all the details you'll need to be able to
 //! create message commands more in detail. For now, happy coding!
 
+pub mod component;
 pub mod errors;
 pub mod message;
 pub mod permissions;
 pub(crate) mod registration;
 pub mod slash;
+
+use std::{error::Error, sync::Arc};
 
 use crate::commands::errors::CommandError;
 use crate::commands::message::{
@@ -561,3 +564,32 @@ where
 
 /// The result of running a command.
 pub type CommandResult = Result<(), CommandError>;
+
+pub trait IntoCommandResult {
+    fn into_command_result(self) -> CommandResult;
+}
+
+impl<T> IntoCommandResult for T
+where
+    T: Into<CommandError>,
+{
+    fn into_command_result(self) -> CommandResult {
+        Err(self.into())
+    }
+}
+
+impl IntoCommandResult for () {
+    fn into_command_result(self) -> CommandResult {
+        Ok(())
+    }
+}
+
+impl<T, E> IntoCommandResult for Result<T, E>
+where
+    E: Error + Send + Sync + 'static,
+{
+    fn into_command_result(self) -> CommandResult {
+        self.map(|_| ())
+            .map_err(|e| CommandError::Runtime(Arc::new(e)))
+    }
+}

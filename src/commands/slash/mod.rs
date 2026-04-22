@@ -204,11 +204,14 @@ use twilight_model::application::command::{Command, CommandType};
 use twilight_model::application::interaction::application_command::CommandDataOption;
 use twilight_model::id::Id;
 
-use crate::commands::errors::{ArgumentError, CommandError};
 use crate::commands::permissions::{PermissionChecker, PermissionContext};
 use crate::commands::slash::arguments::{ArgumentMeta, ArgumentType, IntoArgument};
 use crate::commands::slash::context::SlashContext;
 use crate::commands::{CommandGroupIntoCommandNode, CommandNode, CommandResult};
+use crate::commands::{
+    IntoCommandResult,
+    errors::{ArgumentError, CommandError},
+};
 use crate::errors::{ErrorHandler, ErrorHandlerWithoutType, ErrorHandlerWrapper};
 use crate::state::StateBound;
 use crate::utils::DynFuture;
@@ -486,13 +489,10 @@ where
     State: StateBound,
     Func: Fn(SlashContext<State>) -> Fut + Send + Sync,
     Fut: Future<Output = Res> + Send,
+    Res: IntoCommandResult,
 {
     fn run(&self, ctx: SlashContext<State>) -> DynFuture<'_, CommandResult> {
-        Box::pin(async move {
-            self(ctx).await;
-
-            Ok(())
-        })
+        Box::pin(async move { self(ctx).await.into_command_result() })
     }
 
     fn argument_types(&self) -> Vec<(ArgumentType, bool)> {
@@ -534,6 +534,7 @@ where
     State: StateBound,
     Func: Fn(SlashContext<State>, A) -> Fut + Send + Sync,
     Fut: Future<Output = Res> + Send,
+    Res: IntoCommandResult,
     A: IntoArgument<State>,
 {
     fn run(&self, ctx: SlashContext<State>) -> DynFuture<'_, CommandResult> {
@@ -542,9 +543,7 @@ where
 
             let a = parse_arg(ctx.clone(), &options, 0).await?;
 
-            self(ctx, a).await;
-
-            Ok(())
+            self(ctx, a).await.into_command_result()
         })
     }
 
@@ -558,6 +557,7 @@ where
     State: StateBound,
     Func: Fn(SlashContext<State>, A, B) -> Fut + Send + Sync,
     Fut: Future<Output = Res> + Send,
+    Res: IntoCommandResult,
     A: IntoArgument<State>,
     B: IntoArgument<State>,
 {
@@ -568,9 +568,7 @@ where
             let a = parse_arg(ctx.clone(), &options, 0).await?;
             let b = parse_arg(ctx.clone(), &options, 1).await?;
 
-            self(ctx, a, b).await;
-
-            Ok(())
+            self(ctx, a, b).await.into_command_result()
         })
     }
 
@@ -584,6 +582,7 @@ where
     State: StateBound,
     Func: Fn(SlashContext<State>, A, B, C) -> Fut + Send + Sync,
     Fut: Future<Output = Res> + Send,
+    Res: IntoCommandResult,
     A: IntoArgument<State>,
     B: IntoArgument<State>,
     C: IntoArgument<State>,
@@ -596,9 +595,7 @@ where
             let b = parse_arg(ctx.clone(), &options, 1).await?;
             let c = parse_arg(ctx.clone(), &options, 2).await?;
 
-            self(ctx, a, b, c).await;
-
-            Ok(())
+            self(ctx, a, b, c).await.into_command_result()
         })
     }
 
@@ -612,6 +609,7 @@ where
     State: StateBound,
     Func: Fn(SlashContext<State>, A, B, C, D) -> Fut + Send + Sync,
     Fut: Future<Output = Res> + Send,
+    Res: IntoCommandResult,
     A: IntoArgument<State>,
     B: IntoArgument<State>,
     C: IntoArgument<State>,
@@ -626,9 +624,7 @@ where
             let c = parse_arg(ctx.clone(), &options, 2).await?;
             let d = parse_arg(ctx.clone(), &options, 3).await?;
 
-            self(ctx, a, b, c, d).await;
-
-            Ok(())
+            self(ctx, a, b, c, d).await.into_command_result()
         })
     }
 
@@ -642,6 +638,7 @@ where
     State: StateBound,
     Func: Fn(SlashContext<State>, A, B, C, D, E) -> Fut + Send + Sync,
     Fut: Future<Output = Res> + Send,
+    Res: IntoCommandResult,
     A: IntoArgument<State>,
     B: IntoArgument<State>,
     C: IntoArgument<State>,
@@ -658,9 +655,7 @@ where
             let d = parse_arg(ctx.clone(), &options, 3).await?;
             let e = parse_arg(ctx.clone(), &options, 4).await?;
 
-            self(ctx, a, b, c, d, e).await;
-
-            Ok(())
+            self(ctx, a, b, c, d, e).await.into_command_result()
         })
     }
 
@@ -681,6 +676,7 @@ where
     State: StateBound,
     Func: Fn(SlashContext<State>, A, B, C, D, E, F) -> Fut + Send + Sync,
     Fut: Future<Output = Res> + Send,
+    Res: IntoCommandResult,
     A: IntoArgument<State>,
     B: IntoArgument<State>,
     C: IntoArgument<State>,
@@ -699,9 +695,7 @@ where
             let e = parse_arg(ctx.clone(), &options, 4).await?;
             let f = parse_arg(ctx.clone(), &options, 5).await?;
 
-            self(ctx, a, b, c, d, e, f).await;
-
-            Ok(())
+            self(ctx, a, b, c, d, e, f).await.into_command_result()
         })
     }
 
